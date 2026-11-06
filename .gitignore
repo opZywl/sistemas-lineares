@@ -1,0 +1,5 @@
+.idea/
+InterfaceTests.exe
+tests/*.exe
+RobustnessTests.exe
+tests/fixtures.tsv
