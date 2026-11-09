@@ -1,5 +1,7 @@
 .idea/
-InterfaceTests.exe
+/SistemasLineares.exe
+native/target/
 tests/*.exe
-RobustnessTests.exe
-tests/fixtures.tsv
+tests/*.tsv
+legado/csharp/*.exe
+legado/csharp/tests/*.exe
