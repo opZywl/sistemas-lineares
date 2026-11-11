@@ -1,0 +1,12 @@
+[package]
+name = "sistemas-lineares-core"
+description = "Aritmetica racional exata e eliminacao de Gauss-Jordan para sistemas 2x2 e 3x3"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+num-bigint = "0.5.1"
+num-integer = "0.1.47"
+num-traits = "0.2.19"

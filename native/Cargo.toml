@@ -1,0 +1,16 @@
+[workspace]
+members = ["core", "app"]
+resolver = "3"
+
+[workspace.package]
+version = "4.0.0"
+edition = "2024"
+authors = ["Lucas Lima"]
+rust-version = "1.85"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
