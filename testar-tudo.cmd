@@ -20,7 +20,7 @@ echo [1/3] Rust: nucleo, auditoria independente e interface nativa...
 where cargo >nul 2>nul
 if errorlevel 1 goto semrust
 set "SL_FIXTURES_SAIDA=%FIXTURES%"
-cargo test --release --manifest-path "%CARGO_TOML%" -- --nocapture
+cargo test --release --no-fail-fast --manifest-path "%CARGO_TOML%" -- --nocapture
 if errorlevel 1 goto falharust
 set "SL_FIXTURES_SAIDA="
 if not exist "%FIXTURES%" goto semfixtures

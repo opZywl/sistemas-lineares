@@ -76,11 +76,13 @@ fn retangulo(hwnd: windows::Win32::Foundation::HWND) -> RECT {
 fn salva_e_restaura_posicao_tamanho_e_dimensao() {
     let chave = Chave::nova("restaura");
     let area = area_principal();
+    let largura = 1000.min(area.width - 74);
+    let altura = 700.min(area.height - 82);
     let alvo = RECT {
         left: area.left + 37,
         top: area.top + 41,
-        right: area.left + 37 + 1000,
-        bottom: area.top + 41 + 700,
+        right: area.left + 37 + largura,
+        bottom: area.top + 41 + altura,
     };
     let h = janela_com(oculta(&chave));
     assert!(!comum::visivel(h.main), "janela de teste nunca aparece");
@@ -91,8 +93,8 @@ fn salva_e_restaura_posicao_tamanho_e_dimensao() {
             None,
             alvo.left,
             alvo.top,
-            1000,
-            700,
+            largura,
+            altura,
             SWP_NOZORDER | SWP_NOACTIVATE,
         );
     }
@@ -105,14 +107,14 @@ fn salva_e_restaura_posicao_tamanho_e_dimensao() {
         Bounds {
             left: alvo.left,
             top: alvo.top,
-            width: 1000,
-            height: 700
+            width: largura,
+            height: altura
         }
     );
     assert!(!lugar.maximized);
     assert_eq!(salvo.dimension, Some(3));
     let chave_aberta = Key::open(&chave.0).expect("chave HKCU de teste");
-    assert_eq!(chave_aberta.dword("Largura"), Some(1000));
+    assert_eq!(chave_aberta.dword("Largura"), u32::try_from(largura).ok());
     assert_eq!(chave_aberta.dword("Dimensao"), Some(3));
     drop(chave_aberta);
     let h = janela_com(oculta(&chave));
