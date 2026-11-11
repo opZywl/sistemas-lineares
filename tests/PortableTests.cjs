@@ -21,4 +21,4 @@ const html=fs.readFileSync(path.join(__dirname,'../SistemasLineares.html'),'utf8
 const ids=[...html.matchAll(/<[a-z][^>]*\sid="([^"]+)"/gi)].map(m=>m[1]);
 check(new Set(ids).size===ids.length,'IDs únicos: ícones e controles não podem colidir');
 check(!/__STYLE__|__FONT__|__SOLVER__|__APP__|__ICONS__/.test(html),'arquivo offline completo');
-console.log(`PASS: ${systems} sistemas idênticos entre C# e JavaScript; ${checks} verificações da versão portátil`);
+console.log(`PASS: ${systems} sistemas idênticos entre a versão nativa e JavaScript; ${checks} verificações da versão portátil`);
