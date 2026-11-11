@@ -1,49 +1,69 @@
-# Sistemas Lineares — Lucas Lima
+<div align="center">
+<img src="docs/assets/sistemas-lineares-banner.svg" alt="Sistemas Lineares" width="100%">
+<h3>Resolve sistemas lineares 2×2 e 3×3 com cálculo exato, em um app nativo para Windows.</h3>
 
-Aplicativo para resolver sistemas lineares 2×2 e 3×3. Interface escura inspirada em https://lucas-lima.xyz/, com detalhes lilás, ícones SVG e Space Grotesk incorporada. Não é necessário instalar a fonte.
+<a href="https://github.com/opZywl/sistemas-lineares/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/opZywl/sistemas-lineares/build.yml?branch=main&label=build&color=CEA9F3&style=flat-square&labelColor=111010" alt="Build"></a>
+<img src="https://img.shields.io/badge/plataforma-Windows-CEA9F3?style=flat-square&labelColor=111010" alt="Plataforma: Windows">
+<img src="https://img.shields.io/badge/Rust-1.99-CEA9F3?style=flat-square&labelColor=111010" alt="Rust 1.99">
+<img src="https://img.shields.io/badge/interface-Win32%20%2B%20Direct2D-CEA9F3?style=flat-square&labelColor=111010" alt="Interface: Win32 e Direct2D">
+<a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-GPL--3.0-CEA9F3?style=flat-square&labelColor=111010" alt="Licença: GPL-3.0"></a>
 
-## Executar
+Site: <a href="https://lucas-lima.xyz">lucas-lima.xyz</a><br>
+Última versão: <a href="https://github.com/opZywl/sistemas-lineares/releases/latest">Releases</a><br>
+Autor: Lucas Lima · RA 185964<br>
+</div>
 
-- **SistemasLineares.exe**: aplicativo nativo para Windows, com .NET Framework 4 ou posterior compatível instalado. Compilado em AnyCPU; testado neste computador em processos de 32 e 64 bits. Não requer Python, Node.js ou internet para calcular.
-- **SistemasLineares.html**: alternativa portátil. Abra com dois cliques em um navegador atual com suporte a BigInt, como Chrome, Edge, Firefox ou Safari. O HTML inclui o cálculo, os estilos, os SVGs e a fonte no próprio arquivo; funciona offline. Pode ser utilizado em Windows, macOS e Linux com navegador compatível.
+## Demonstração
+<p align="center">
+<img src="docs/assets/demo.gif" alt="Um sistema sendo resolvido no Sistemas Lineares" width="100%">
+</p>
 
-Não existe garantia universal de execução em qualquer computador: sistema operacional, runtime, navegador e políticas de execução precisam ser compatíveis. A versão HTML oferece uma alternativa quando o executável Windows não puder ser utilizado. A validação de 32 e 64 bits foi realizada no mesmo Windows, não em todos os modelos de computador ou sistemas operacionais.
+## Instalando o Sistemas Lineares
+Clique [aqui](docs/INSTALANDO.md) para ver como baixar, instalar e conferir o Sistemas Lineares.
 
-## Usar
+O `SistemasLineares.exe` não tem assinatura digital, então o Windows SmartScreen pode avisar na primeira execução. O código-fonte está neste repositório e cada release traz o SHA-256 dos arquivos.
 
-1. Escolha **2 × 2** ou **3 × 3**.
-2. Preencha o coeficiente de cada variável e o termo independente, à direita do sinal de igualdade. Use **0** para variáveis que não aparecem na equação.
-3. Clique em **Resolver sistema** ou pressione **Enter**. **Tab** navega entre os campos.
-4. Confira o painel de resultado. **Copiar resultado** copia a resposta completa, inclusive valores longos.
+## Recursos
+- **Cálculo exato:** frações de inteiros de precisão arbitrária e eliminação de Gauss-Jordan, sem arredondamento.
+- **Resposta completa:** solução única, infinitas soluções com a forma geral em parâmetros `t1`, `t2`, … ou sistema sem solução.
+- **Entrada flexível:** inteiros, decimais com vírgula ou ponto, frações como `3/4` e notação científica como `1e-6`, com aviso no campo que precisa de correção.
+- **App nativo:** um único `SistemasLineares.exe` em Rust, Win32 e Direct2D/DirectWrite, com a Space Grotesk embutida. Não precisa de .NET, de navegador nem de internet.
+- **Integrado ao Windows:** DPI por monitor, alto contraste, leitor de tela, barra de título escura e janela lembrada entre aberturas.
+- **Instalação opcional:** roda direto do download ou instala por usuário, sem administrador, com atalho no menu Iniciar.
+- **Versão HTML:** o `SistemasLineares.html` faz o mesmo cálculo no navegador, offline, no Windows, macOS ou Linux.
 
-**Usar exemplo** preenche um sistema para experimentar. **Limpar** apaga os campos. **Feito por Lucas Lima**, no topo, abre o site do autor quando clicado. O programa não faz consultas externas para resolver o sistema e não utiliza modelos de IA.
+## Como funciona
+O app monta a matriz aumentada [A | b] e aplica a eliminação de Gauss-Jordan. Uma linha do tipo 0 = c, com c diferente de zero, mostra que o sistema não tem solução; variáveis sem pivô viram parâmetros livres. Os números são frações de inteiros de precisão arbitrária, então uma diferença pequena nunca é confundida com zero por arredondamento.
 
-### Formatos de entrada
+O método, com exemplos prontos para apresentar, está em [APRESENTACAO.md](APRESENTACAO.md). A organização do código está em [ARQUITETURA.md](docs/ARQUITETURA.md).
 
-Aceita inteiros (`-2`), decimais (`1,5` ou `1.5`), frações (`3/4`) e notação científica (`1e-6`). As frações também podem ter decimais, como `2,5/0,5`. Cada campo deve ter até 100 caracteres; expoentes devem estar entre -1000 e 1000. Denominador zero, campos vazios e formatos inválidos são sinalizados. Não há separadores de milhar; utilize números sem agrupamento. Expressões simbólicas como `√2` não são aceitas.
+## Problemas
+Encontrou um erro ou tem uma ideia? Clique [aqui](https://github.com/opZywl/sistemas-lineares/issues) para abrir uma issue.
 
-O algoritmo trabalha com coeficientes racionais e não usa aproximação de ponto flutuante. A solução aparece como inteiro ou fração exata. O programa distingue solução única, infinitas soluções e sistemas sem solução. Nas soluções gerais, `t1`, `t2`, etc. são parâmetros reais livres.
+## Licença
+Este projeto está sob a [GNU General Public License v3.0](LICENSE).
 
-## Código e compilação
+Para quem não conhece a licença, segue um resumo dos pontos principais. Isto não é aconselhamento jurídico e não tem valor legal.
 
-- **src/Solver.cs**: racional de precisão arbitrária e eliminação de Gauss-Jordan.
-- **src/Program.cs**: interface Windows Forms, validação e ações.
-- **src/Design.cs**: componentes e renderização dos SVGs.
-- **src/Fonts.cs**: carregamento local das fontes incorporadas.
-- **assets/**: fontes, licença, SVGs, ícone e manifesto.
-- **portable/**: fontes da versão HTML, incluindo o cálculo em JavaScript/BigInt.
-- **tools/build-portable.cjs**: gera o HTML independente.
-- **tests/**: testes matemáticos, de interface e de paridade entre versões.
+Você pode:
+- usar
+- compartilhar
+- modificar
 
-Feche o aplicativo e abra **compilar.cmd** para compilar e testar a versão Windows com o compilador do .NET Framework. Execute **testar-tudo.cmd** para incluir a auditoria independente e, quando houver Node.js instalado, reconstruir e testar a versão portátil. Os runtimes de desenvolvimento não são necessários para usar os arquivos já compilados.
+este projeto, inteiro ou em parte, de graça e até comercialmente. Porém, se compartilhar uma versão modificada:
 
-## Validação
+- **Você precisa divulgar o código-fonte.**
+- **Ela também precisa ser licenciada sob a GPL.**
 
-- 3.421 verificações matemáticas básicas.
-- 76.674 sistemas auditados com posto calculado por menores e soluções únicas comparadas com a regra de Cramer: 1.703.886 verificações independentes.
-- O mesmo conjunto de 76.674 sistemas comparado entre C# e JavaScript, incluindo a resposta completa e a parametrização das infinitas soluções.
-- Testes de interface em processos de 32 e 64 bits, além de conferência visual e de um exemplo 3×3 nas duas interfaces.
+A fonte Space Grotesk tem licença própria, a SIL Open Font License 1.1, em [assets/SpaceGrotesk-LICENSE.txt](assets/SpaceGrotesk-LICENSE.txt).
 
-O conjunto auditado inclui todos os sistemas 2×2 com entradas inteiras entre -2 e 2; todas as matrizes de coeficientes 3×3 com entradas -1, 0 e 1, combinadas com três vetores de termos independentes; e 2.000 sistemas aleatórios adicionais. Há testes específicos para números de 100 dígitos, casos quase singulares, formatos inválidos e expoentes. Esses testes constituem evidência verificável, não uma promessa de ausência de falhas em todas as entradas ou ambientes possíveis.
+## Configurando o ambiente
+Clique [aqui](docs/AMBIENTE.md) para preparar o ambiente de desenvolvimento. No Windows, o `abrir.cmd` confere o Rust, compila, roda os testes e abre o app em um passo.
 
-Consulte **APRESENTACAO.md** para entender o método e demonstrar exemplos ao professor. A Space Grotesk é distribuída com sua licença em assets/SpaceGrotesk-LICENSE.txt; fonte original: https://github.com/floriankarsten/space-grotesk.
+## Contribuindo
+Clique [aqui](docs/CONTRIBUINDO.md) para saber como contribuir. Veja também [BUILD.md](BUILD.md), [ARQUITETURA.md](docs/ARQUITETURA.md) e [CHANGELOG.md](CHANGELOG.md).
+
+<p align="center">
+<img src="docs/assets/sistemas-lineares-logo-animated.svg" alt="Sistemas Lineares" width="112"><br>
+<sub>Feito por <a href="https://lucas-lima.xyz">Lucas Lima (Zywl)</a> · RA 185964 · <a href="https://github.com/opZywl">@opZywl</a></sub>
+</p>

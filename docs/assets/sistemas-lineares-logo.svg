@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="sl-logo-title sl-logo-desc">
+<title id="sl-logo-title">Sistemas Lineares</title>
+<desc id="sl-logo-desc">O ícone de Sistemas Lineares: uma matriz entre colchetes em lilás sobre fundo escuro.</desc>
+<metadata><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#"><cc:Work rdf:about=""><dc:title>Sistemas Lineares — logo</dc:title><dc:description>O ícone de Sistemas Lineares: uma matriz entre colchetes em lilás sobre fundo escuro.</dc:description><dc:creator><cc:Agent><dc:title>Lucas Lima (Zywl)</dc:title></cc:Agent></dc:creator><dc:publisher><cc:Agent><dc:title>Lucas Lima (Zywl)</dc:title></cc:Agent></dc:publisher><dc:rights><cc:Agent><dc:title>Copyright © 2026 Lucas Lima (Zywl)</dc:title></cc:Agent></dc:rights><dc:source>https://github.com/opZywl/sistemas-lineares</dc:source><dc:relation>https://lucas-lima.xyz</dc:relation><dc:date>2026</dc:date><dc:format>image/svg+xml</dc:format><dc:language>pt-BR</dc:language></cc:Work></rdf:RDF></metadata>
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d1a20"/><stop offset=".55" stop-color="#111010"/><stop offset="1" stop-color="#0b0a0b"/></linearGradient>
+<radialGradient id="aura" gradientUnits="userSpaceOnUse" cx="128" cy="128" r="128"><stop offset="0" stop-color="#CEA9F3" stop-opacity=".26"/><stop offset=".5" stop-color="#8f6db3" stop-opacity=".08"/><stop offset="1" stop-color="#111010" stop-opacity="0"/></radialGradient>
+<radialGradient id="grid-fade" gradientUnits="userSpaceOnUse" cx="128" cy="128" r="150"><stop offset="0" stop-color="#fff"/><stop offset=".6" stop-color="#fff" stop-opacity=".35"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+<pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#fff" stroke-opacity=".05"/></pattern>
+<mask id="grid-mask"><rect width="256" height="256" fill="url(#grid-fade)"/></mask>
+<clipPath id="tile-clip"><rect width="256" height="256" rx="56"/></clipPath>
+<filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="256" height="256"><feGaussianBlur stdDeviation="7"/></filter>
+</defs>
+<g clip-path="url(#tile-clip)">
+<rect width="256" height="256" fill="url(#tile)"/>
+<rect width="256" height="256" fill="url(#grid)" mask="url(#grid-mask)"/>
+<circle cx="128" cy="128" r="128" fill="url(#aura)"/>
+<g opacity=".55" filter="url(#glow)"><g fill="none" stroke="#CEA9F3" stroke-width="12.38" stroke-linecap="round" stroke-linejoin="round"><path d="M90.5 60.5L60.5 60.5L60.5 195.5L90.5 195.5"/><path d="M165.5 60.5L195.5 60.5L195.5 195.5L165.5 195.5"/></g><g fill="#CEA9F3"><rect x="99.31" y="91.81" width="19.88" height="12.38" rx="6.19"/><rect x="136.81" y="91.81" width="19.88" height="12.38" rx="6.19"/><rect x="99.31" y="121.81" width="19.88" height="12.38" rx="6.19"/><rect x="136.81" y="121.81" width="19.88" height="12.38" rx="6.19"/><rect x="99.31" y="151.81" width="19.88" height="12.38" rx="6.19"/><rect x="136.81" y="151.81" width="19.88" height="12.38" rx="6.19"/></g></g>
+<g fill="none" stroke="#CEA9F3" stroke-width="12.38" stroke-linecap="round" stroke-linejoin="round"><path d="M90.5 60.5L60.5 60.5L60.5 195.5L90.5 195.5"/><path d="M165.5 60.5L195.5 60.5L195.5 195.5L165.5 195.5"/></g><g fill="#CEA9F3"><rect x="99.31" y="91.81" width="19.88" height="12.38" rx="6.19"/><rect x="136.81" y="91.81" width="19.88" height="12.38" rx="6.19"/><rect x="99.31" y="121.81" width="19.88" height="12.38" rx="6.19"/><rect x="136.81" y="121.81" width="19.88" height="12.38" rx="6.19"/><rect x="99.31" y="151.81" width="19.88" height="12.38" rx="6.19"/><rect x="136.81" y="151.81" width="19.88" height="12.38" rx="6.19"/></g>
+</g>
+<rect x=".5" y=".5" width="255" height="255" rx="55.5" fill="none" stroke="#fff" stroke-opacity=".09"/>
+</svg>

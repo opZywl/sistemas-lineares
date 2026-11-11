@@ -1,5 +1,7 @@
 # Como apresentar o projeto
 
+Lucas Lima · RA 185964
+
 O objetivo é receber os coeficientes de um sistema linear 2×2 ou 3×3 e apresentar sua classificação e solução. A interface representa cada equação na forma a·x + b·y = c, ou a·x + b·y + c·z = d.
 
 ## Método matemático
@@ -8,7 +10,7 @@ O programa monta a matriz aumentada [A | b] e aplica eliminação de Gauss-Jorda
 
 Uma linha com todos os coeficientes zero e termo independente diferente de zero representa uma contradição, como 0 = 1: o sistema não tem solução. Quando todas as variáveis têm pivô, a solução é única. Se não houver contradição e restarem variáveis sem pivô, elas se tornam parâmetros livres, e o sistema tem infinitas soluções.
 
-Os números são armazenados como frações reduzidas de inteiros de precisão arbitrária: BigInteger em C# e BigInt em JavaScript. Isso evita confundir uma diferença pequena com zero por arredondamento. Não há IA na resolução: o resultado é produzido pelas operações matemáticas descritas no código.
+Os números são armazenados como frações reduzidas de inteiros de precisão arbitrária: `BigInt` da crate num-bigint no app nativo em Rust e BigInt na versão HTML em JavaScript. Isso evita confundir uma diferença pequena com zero por arredondamento. Não há IA na resolução: o resultado é produzido pelas operações matemáticas descritas no código.
 
 ## Demonstrações
 
@@ -26,6 +28,8 @@ Mostre também o aviso para um campo vazio ou para uma fração com denominador 
 
 ## Onde explicar no código
 
-Em src/Solver.cs, Rational.Parse interpreta os números; a estrutura Rational implementa as operações exatas; Solver.Solve efetua a eliminação; e Solver.Format escreve as respostas, inclusive com parâmetros livres. Em tests/RobustnessTests.cs, os resultados são conferidos por métodos independentes: determinantes e substituição nas equações originais.
+Em native/core/src/lib.rs, `Rational::parse` interpreta os números; a estrutura `Rational` implementa as operações exatas; `solve` efetua a eliminação; e `format` escreve as respostas, inclusive com parâmetros livres. Em native/core/tests/robustez.rs, os resultados são conferidos por métodos independentes: posto por menores, regra de Cramer e substituição nas equações originais. A janela fica em native/app/src: window.rs desenha a interface e model.rs guarda o estado da tela.
 
-Antes da apresentação, abra a versão escolhida no computador que será utilizado e execute os exemplos acima. Leve tanto o EXE quanto o HTML offline. Consulte o README para os requisitos de execução e formatos de entrada.
+A versão anterior, em C#, fica em legado/csharp como implementação de referência: as duas dão as mesmas respostas, byte a byte.
+
+Antes da apresentação, abra a versão escolhida no computador que será utilizado e execute os exemplos acima. Leve o SistemasLineares.exe, baixado da página de Releases, e o SistemasLineares.html offline. O exe é um arquivo único e não precisa de instalação. Consulte o README para os requisitos de execução e formatos de entrada.
