@@ -1,0 +1,73 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    name: Rust (rustfmt e Clippy)
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v5
+
+      - name: Ler a toolchain fixada
+        id: toolchain
+        shell: pwsh
+        run: ./.github/scripts/toolchain.ps1
+
+      - name: Instalar o Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.canal }}
+          components: rustfmt, clippy
+
+      - name: Cache do Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - name: Conferir a formatação
+        working-directory: native
+        run: cargo fmt --all --check
+
+      - name: Rodar o Clippy
+        working-directory: native
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  html:
+    name: Versão HTML em dia
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v5
+
+      - name: Instalar o Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Gerar o SistemasLineares.html
+        run: node tools/build-portable.cjs
+
+      - name: Comparar com o arquivo commitado
+        run: |
+          if ! git diff --quiet -- SistemasLineares.html; then
+            git --no-pager diff --stat -- SistemasLineares.html
+            echo "::error file=SistemasLineares.html::O SistemasLineares.html está diferente do gerado a partir de portable/ e assets/. Rode node tools/build-portable.cjs e faça commit do arquivo gerado."
+            exit 1
+          fi
+          echo "SistemasLineares.html em dia com portable/ e assets/."

@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publicar a release
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v5
+
+      - name: Conferir a versão e o CHANGELOG
+        shell: pwsh
+        run: ./.github/scripts/notas-da-release.ps1 -Versao $env:TAG -Saida "$env:RUNNER_TEMP/notas.md"
+
+      - name: Ler a toolchain fixada
+        id: toolchain
+        shell: pwsh
+        run: ./.github/scripts/toolchain.ps1
+
+      - name: Instalar o Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.canal }}
+          components: rustfmt, clippy
+
+      - name: Cache do Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: release
+
+      - name: Instalar o Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Conferir o compilador C# do .NET Framework
+        shell: pwsh
+        run: |
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          if (-not (Test-Path -LiteralPath $csc)) {
+            throw "csc.exe não encontrado em ${csc}: a paridade com a versão C# não seria verificada."
+          }
+          Write-Output "Compilador C#: $csc"
+
+      - name: Conferir o Cargo.lock
+        working-directory: native
+        run: cargo fetch --locked
+
+      - name: Testes, paridade e versão HTML
+        shell: cmd
+        run: call .\testar-tudo.cmd --no-pause
+
+      - name: Conferir o HTML commitado
+        shell: pwsh
+        run: |
+          git diff --quiet -- SistemasLineares.html
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output '::error file=SistemasLineares.html::O SistemasLineares.html da tag está diferente do gerado a partir de portable/ e assets/.'
+            exit 1
+          }
+
+      - name: Compilar o SistemasLineares.exe
+        working-directory: native
+        run: cargo build --release --locked
+
+      - name: Calcular o SHA-256
+        shell: pwsh
+        run: ./.github/scripts/sha256.ps1
+
+      - name: Montar as notas da release
+        shell: pwsh
+        run: ./.github/scripts/notas-da-release.ps1 -Versao $env:TAG -Sha256 native/target/dist/SHA256SUMS.md -Saida native/target/dist/NOTAS.md
+
+      - name: Publicar a release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Sistemas Lineares ${{ github.ref_name }}
+          body_path: native/target/dist/NOTAS.md
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            native/target/dist/SistemasLineares.exe
+            native/target/dist/SistemasLineares.html
+            native/target/dist/SHA256SUMS.txt
