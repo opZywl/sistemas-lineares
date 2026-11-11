@@ -1148,3 +1148,19 @@ fn janela_aparece_ja_pintada_e_sem_camuflagem() {
     assert!(visivel(h.main));
     fechar(&h);
 }
+
+#[test]
+fn tamanho_explicito_ignora_o_limite_da_tela() {
+    let pedido = (2600, 1600);
+    let h = janela_com(Launch::background(FORA_DA_TELA, pedido));
+    let mut cliente = RECT::default();
+    unsafe {
+        let _ = GetClientRect(h.main, &mut cliente);
+    }
+    assert_eq!(
+        (cliente.right - cliente.left, cliente.bottom - cliente.top),
+        pedido,
+        "janela de teste com o tamanho pedido mesmo em tela menor, como a do GitHub Actions"
+    );
+    fechar(&h);
+}

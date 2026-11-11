@@ -532,6 +532,7 @@ struct App {
     last_focus: Cell<HWND>,
     quit_on_destroy: bool,
     settings_key: Option<String>,
+    unbounded: bool,
     normal: Cell<Option<(Bounds, u32)>>,
     accessibility: RefCell<Option<IAccPropServices>>,
     annotated: RefCell<Vec<HWND>>,
@@ -925,6 +926,17 @@ pub fn create(launch: &Launch) -> Result<Handles> {
             let _ = DestroyWindow(main);
             return Err(error);
         }
+        if app.unbounded {
+            let _ = SetWindowPos(
+                main,
+                None,
+                bounds.left,
+                bounds.top,
+                bounds.width,
+                bounds.height,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
         app.track_normal(main);
         let handles = app.handles.get();
         let show = startup_show(maximized, launch.show);
@@ -1225,6 +1237,7 @@ impl App {
             last_focus: Cell::new(HWND::default()),
             quit_on_destroy: launch.quit_on_close,
             settings_key: launch.settings_key.clone(),
+            unbounded: launch.client_size.is_some(),
             normal: Cell::new(None),
             accessibility: RefCell::new(None),
             annotated: RefCell::new(Vec::new()),
@@ -1854,6 +1867,12 @@ impl App {
                             x: width,
                             y: height,
                         };
+                        if self.unbounded {
+                            info.ptMaxTrackSize = POINT {
+                                x: i32::from(i16::MAX),
+                                y: i32::from(i16::MAX),
+                            };
+                        }
                     }
                     LRESULT(0)
                 }
