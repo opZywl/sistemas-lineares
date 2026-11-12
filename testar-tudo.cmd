@@ -9,6 +9,7 @@ set "AMARELO=%ESC%[93m"
 set "NORMAL=%ESC%[0m"
 set "CARGO_TOML=%~dp0native\Cargo.toml"
 set "FIXTURES=%~dp0tests\fixtures.tsv"
+set "PASSOS=%~dp0tests\passos.tsv"
 set "FIXTURES_CSHARP=%~dp0tests\fixtures-csharp.tsv"
 set "AUDITORIA_CSHARP=%~dp0tests\RobustnessTests.exe"
 set "ESPERAR=1"
@@ -20,10 +21,13 @@ echo [1/3] Rust: nucleo, auditoria independente e interface nativa...
 where cargo >nul 2>nul
 if errorlevel 1 goto semrust
 set "SL_FIXTURES_SAIDA=%FIXTURES%"
+set "SL_PASSOS_SAIDA=%PASSOS%"
 cargo test --release --no-fail-fast --manifest-path "%CARGO_TOML%" -- --nocapture
 if errorlevel 1 goto falharust
 set "SL_FIXTURES_SAIDA="
+set "SL_PASSOS_SAIDA="
 if not exist "%FIXTURES%" goto semfixtures
+if not exist "%PASSOS%" goto sempassos
 
 echo.
 echo [2/3] Paridade com a versao C# de referencia (legado\csharp)...
@@ -43,12 +47,12 @@ echo %AMARELO% AVISO %NORMAL% Compilador do .NET Framework nao encontrado: parid
 
 :javascript
 echo.
-echo [3/3] Versao HTML (JavaScript)...
+echo [3/3] Versao HTML (JavaScript) e passo a passo do Modo pensar...
 where node >nul 2>nul
 if errorlevel 1 goto semnode
 node "%~dp0tools\build-portable.cjs"
 if errorlevel 1 goto falhajs
-node "%~dp0tests\PortableTests.cjs" "%FIXTURES%"
+node "%~dp0tests\PortableTests.cjs" "%FIXTURES%" "%PASSOS%"
 if errorlevel 1 goto falhajs
 goto concluido
 :semnode
@@ -69,6 +73,9 @@ set "MSG=Os testes do Rust falharam (veja acima)."
 goto falha
 :semfixtures
 set "MSG=A auditoria do Rust nao gerou o arquivo de respostas."
+goto falha
+:sempassos
+set "MSG=Os testes do Rust nao geraram o arquivo de passos do Modo pensar (tests\passos.tsv)."
 goto falha
 :falhacsharp
 set "MSG=Nao foi possivel rodar a auditoria da versao C# de referencia."
@@ -92,6 +99,7 @@ exit /b 1
 
 :limpar
 if exist "%FIXTURES%" del "%FIXTURES%"
+if exist "%PASSOS%" del "%PASSOS%"
 if exist "%FIXTURES_CSHARP%" del "%FIXTURES_CSHARP%"
 if exist "%AUDITORIA_CSHARP%" del "%AUDITORIA_CSHARP%"
 exit /b 0
