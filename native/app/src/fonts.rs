@@ -172,8 +172,8 @@ pub struct TextMetrics {
     pub external_leading: i32,
 }
 
-pub fn role_metrics(dpi: u32) -> [TextMetrics; 7] {
-    let mut result = [TextMetrics::default(); 7];
+pub fn role_metrics(dpi: u32) -> [TextMetrics; Font::COUNT] {
+    let mut result = [TextMetrics::default(); Font::COUNT];
     for role in Font::ALL {
         let pixels = role.pixels(dpi);
         let metrics = GdiFont::for_role(role, dpi)

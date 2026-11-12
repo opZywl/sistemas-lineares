@@ -8,6 +8,7 @@ pub mod model;
 pub mod registry;
 pub mod settings;
 pub mod theme;
+pub mod thinking;
 pub mod window;
 
 pub use window::{

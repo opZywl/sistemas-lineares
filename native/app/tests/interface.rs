@@ -14,6 +14,7 @@ use sistemas_lineares::model;
 use sistemas_lineares::theme::{self, Color};
 use sistemas_lineares::window::{system_colors, system_high_contrast};
 use sistemas_lineares::{Button, Launch, diagnostics, force_high_contrast, pump};
+use sistemas_lineares_core::Method;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
@@ -145,7 +146,9 @@ fn fluxo_completo_por_mensagens() {
     assert_eq!(texto(h.author), "Feito por Lucas Lima · RA 185964");
     assert_eq!(foco(), h.inputs[0][0], "foco inicial no campo (0,0)");
     assert!(!habilitado(h.copy), "copiar desabilitado no início");
-    assert_eq!(texto(h.copy), "Copiar resultado");
+    assert_eq!(texto(h.copy), "Copiar");
+    assert_eq!(texto(h.think), "Modo pensar");
+    assert!(!habilitado(h.think), "modo pensar desabilitado no início");
     assert_eq!(texto(h.helper), model::DEFAULT_HELPER);
     assert_eq!(texto(h.dimension), "2 equações · 2 incógnitas");
     assert!(
@@ -317,10 +320,10 @@ fn ordem_do_tab_e_circular() {
         h.solve,
         h.example,
         h.clear,
+        h.think,
         h.copy,
         h.author,
         h.two,
-        h.three,
     ];
     assert_eq!(tres, esperado3, "Tab no 3x3 com Copiar habilitado");
     fechar(&h);
@@ -781,8 +784,8 @@ fn leitor_de_tela_nomes_e_regioes_vivas() {
     assert_eq!(nome_acessivel(h.solve), "Resolver sistema");
     let diag = diagnostics(h.main).expect("diagnóstico");
     assert_eq!(
-        diag.live_regions, 4,
-        "helper, título, nota e dimensão são regiões vivas"
+        diag.live_regions, 5,
+        "helper, título, nota, dimensão e título do método são regiões vivas"
     );
 
     let gancho = unsafe {
@@ -1163,4 +1166,218 @@ fn tamanho_explicito_ignora_o_limite_da_tela() {
         "janela de teste com o tamanho pedido mesmo em tela menor, como a do GitHub Actions"
     );
     fechar(&h);
+}
+
+fn retangulo_no_canvas(
+    h: &sistemas_lineares::Handles,
+    hwnd: HWND,
+) -> sistemas_lineares::layout::Rect {
+    let mut canvas = RECT::default();
+    let mut alvo = RECT::default();
+    unsafe {
+        let _ = GetWindowRect(h.canvas, &mut canvas);
+        let _ = GetWindowRect(hwnd, &mut alvo);
+    }
+    sistemas_lineares::layout::Rect::new(
+        alvo.left - canvas.left,
+        alvo.top - canvas.top,
+        alvo.right - alvo.left,
+        alvo.bottom - alvo.top,
+    )
+}
+
+#[test]
+fn modo_pensar_por_mensagens() {
+    let h = janela();
+    nao_e_primeiro_plano(&h);
+    assert!(!habilitado(h.think));
+    assert!(!visivel(h.back) && !visivel(h.status) && !visivel(h.copy_steps));
+    assert!(h.steps.iter().all(|passo| !visivel(*passo)));
+    clicar(&h, Button::Think);
+    assert!(!diagnostics(h.main).expect("diagnóstico").thinking);
+    clicar(&h, Button::Example);
+    clicar(&h, Button::Solve);
+    assert!(habilitado(h.think), "modo pensar habilitado após resolver");
+
+    clicar(&h, Button::Think);
+    let estado = diagnostics(h.main).expect("diagnóstico");
+    assert!(estado.thinking);
+    assert_eq!(estado.method, Method::GaussJordan);
+    assert_eq!(estado.steps, 7);
+    assert_eq!(estado.scroll, (0, 0), "o passo a passo abre no topo");
+    assert_eq!(texto(h.status), "Gauss-Jordan · 7 passos");
+    assert_eq!(foco(), h.methods[0], "foco no método selecionado");
+    assert!(visivel(h.back) && visivel(h.copy_steps) && visivel(h.status) && visivel(h.author));
+    assert!(h.methods.iter().all(|metodo| visivel(*metodo)));
+    for escondido in [
+        h.inputs[0][0],
+        h.inputs[1][3],
+        h.two,
+        h.solve,
+        h.example,
+        h.clear,
+        h.think,
+        h.copy,
+        h.values[0],
+        h.title,
+        h.note,
+        h.helper,
+        h.dimension,
+    ] {
+        assert!(
+            !visivel(escondido),
+            "controle do resolvedor visível no modo pensar"
+        );
+    }
+    let visiveis: Vec<HWND> = h
+        .steps
+        .iter()
+        .copied()
+        .filter(|passo| visivel(*passo))
+        .collect();
+    assert_eq!(visiveis.len(), 7);
+    assert!(texto(visiveis[0]).starts_with("Passo 1 · Montar a matriz aumentada\n"));
+    assert!(texto(visiveis[1]).contains("L₁ ← L₁ ÷ 2"));
+    assert!(texto(visiveis[6]).contains("1ª equação: 2·2 + 1·1 = 4 + 1 = 5 (confere)"));
+    let card = estado.layout.sheet;
+    let mut anterior = estado.layout.sheet_content.y;
+    for passo in &visiveis {
+        let rect = retangulo_no_canvas(&h, *passo);
+        assert!(card.contains(rect), "passo {rect:?} fora do card {card:?}");
+        assert!(rect.y >= anterior, "passos fora de ordem ou sobrepostos");
+        anterior = rect.bottom();
+    }
+    assert!(estado.layout.footer.y > card.bottom());
+    assert!(estado.layout.content_h >= estado.layout.footer.bottom());
+
+    clicar(&h, Button::MethodCramer);
+    let estado = diagnostics(h.main).expect("diagnóstico");
+    assert_eq!(estado.method, Method::Cramer);
+    assert_eq!(estado.steps, 6);
+    assert_eq!(texto(h.status), "Regra de Cramer · 6 passos");
+    assert!(texto(h.steps[1]).contains("D = 2·(−1) − 1·1"));
+    assert!(texto(h.steps[4]).contains("x = Dx ÷ D = −6 ÷ (−3) = 2"));
+    assert!(!visivel(h.steps[6]) && texto(h.steps[6]).is_empty());
+    assert_eq!(
+        nome_acessivel(h.methods[1]),
+        "Método Regra de Cramer, selecionado"
+    );
+    assert_eq!(nome_acessivel(h.methods[0]), "Método Gauss-Jordan");
+
+    clicar(&h, Button::MethodGauss);
+    assert!(texto(h.status).starts_with("Escalonamento de Gauss · "));
+    assert!(
+        h.steps
+            .iter()
+            .any(|passo| texto(*passo).contains("m = 1 ÷ 2 = 1/2"))
+    );
+
+    let mut atual = h.back;
+    let mut ordem = vec![atual];
+    for _ in 0..6 {
+        atual = unsafe { GetNextDlgTabItem(h.main, Some(atual), false) }.unwrap_or_default();
+        ordem.push(atual);
+    }
+    assert_eq!(
+        ordem,
+        vec![
+            h.back,
+            h.methods[0],
+            h.methods[1],
+            h.methods[2],
+            h.copy_steps,
+            h.author,
+            h.back
+        ],
+        "Tab no modo pensar"
+    );
+
+    unsafe {
+        let _ = SetFocus(Some(h.methods[2]));
+    }
+    tecla(&h, h.methods[2], VK_ESCAPE);
+    let estado = diagnostics(h.main).expect("diagnóstico");
+    assert!(!estado.thinking, "Esc volta para o resolvedor");
+    assert_eq!(estado.method, Method::Gauss, "método lembrado");
+    assert!(visivel(h.inputs[0][0]) && visivel(h.think) && visivel(h.values[0]));
+    assert!(!visivel(h.back) && !visivel(h.status));
+    assert!(h.steps.iter().all(|passo| !visivel(*passo)));
+    assert_eq!(foco(), h.think, "foco volta para Modo pensar");
+    assert!(
+        unsafe { IsWindow(Some(h.main)).as_bool() },
+        "Esc não fecha a janela"
+    );
+
+    clicar(&h, Button::Think);
+    assert_eq!(
+        diagnostics(h.main).expect("diagnóstico").method,
+        Method::Gauss
+    );
+    clicar(&h, Button::Back);
+    assert!(!diagnostics(h.main).expect("diagnóstico").thinking);
+    escrever(&h, 0, 0, "4");
+    assert!(!habilitado(h.think), "editar desabilita o modo pensar");
+    clicar(&h, Button::Think);
+    assert!(!diagnostics(h.main).expect("diagnóstico").thinking);
+    nao_e_primeiro_plano(&h);
+    fechar(&h);
+}
+
+#[test]
+fn modo_pensar_desenhado_em_todos_os_modos() {
+    for (nome, launch) in [
+        ("Direct2D", Launch::background(FORA_DA_TELA, CLIENTE)),
+        (
+            "GDI",
+            Launch {
+                renderer: sistemas_lineares::Renderer::Gdi,
+                ..Launch::background(FORA_DA_TELA, CLIENTE)
+            },
+        ),
+        (
+            "alto contraste",
+            Launch {
+                high_contrast: Some(true),
+                ..Launch::background(FORA_DA_TELA, CLIENTE)
+            },
+        ),
+    ] {
+        let h = janela_com(launch);
+        clicar(&h, Button::Three);
+        clicar(&h, Button::Example);
+        clicar(&h, Button::Solve);
+        clicar(&h, Button::Think);
+        let estado = diagnostics(h.main).expect("diagnóstico");
+        assert!(estado.thinking, "{nome}");
+        let paleta = estado.palette;
+        let imagem = capturar(h.main);
+        let titulo = retangulo_no_canvas(&h, h.status);
+        let tinta = imagem.conta(
+            (titulo.x, titulo.y, titulo.right(), titulo.bottom()),
+            |cor| distancia(cor, paleta.ink) < 90,
+        );
+        assert!(tinta > 150, "{nome}: título do método desenhado ({tinta})");
+        let primeiro = retangulo_no_canvas(&h, h.steps[0]);
+        let selo = imagem.conta(
+            (
+                primeiro.x,
+                primeiro.y,
+                primeiro.x + d(1.0, 40),
+                primeiro.y.saturating_add(70).min(imagem.altura),
+            ),
+            |cor| distancia(cor, paleta.badge_fill) < 30,
+        );
+        assert!(selo > 200, "{nome}: número do passo desenhado ({selo})");
+        let fundo = imagem.conta(
+            (
+                primeiro.x,
+                primeiro.y,
+                primeiro.right(),
+                primeiro.bottom().min(imagem.altura),
+            ),
+            |cor| cor == paleta.surface,
+        );
+        assert!(fundo > 1000, "{nome}: fundo do passo pintado ({fundo})");
+        fechar(&h);
+    }
 }

@@ -1,4 +1,6 @@
-use sistemas_lineares_core::{Rational, SolutionKind, VARIABLE_NAMES, format, solve};
+use sistemas_lineares_core::{
+    Method, Rational, SolutionKind, VARIABLE_NAMES, Walkthrough, format, solve, walkthrough,
+};
 
 pub const WINDOW_TITLE: &str = "Sistemas Lineares · Lucas Lima";
 pub const BRAND: &str = "Sistemas Lineares";
@@ -10,8 +12,10 @@ pub const AUTHOR_DESCRIPTION: &str = "Abre https://lucas-lima.xyz/ no navegador 
 pub const AUTHOR_TOOLTIP: &str = "Visitar lucas-lima.xyz";
 pub const AUTHOR_URL: &str = "https://lucas-lima.xyz/";
 pub const INTRO: &str = "SISTEMAS\nLINEARES.";
-pub const SUBTITLE: &str =
-    "Insira os coeficientes. Confira a solução.\nCálculo exato por eliminação de Gauss-Jordan.";
+pub const SUBTITLE: &str = "Insira os coeficientes. Confira a solução.\nE veja o passo a passo por Gauss-Jordan, Cramer ou escalonamento.";
+pub const THINK_INTRO: &str = "MODO\nPENSAR.";
+pub const THINK_SUBTITLE: &str =
+    "Como a resposta foi calculada, passo a passo,\ncom o porquê de cada conta.";
 pub const ENTRY_TITLE: &str = "Seu sistema";
 pub const ENTRY_DESCRIPTION: &str = "Escolha o tamanho e preencha cada equação.";
 pub const TWO_LABEL: &str = "2 × 2";
@@ -24,7 +28,9 @@ pub const RESULT_LABEL: &str = "RESULTADO";
 pub const EMPTY_TITLE: &str = "Aguardando os valores";
 pub const EMPTY_DESCRIPTION: &str =
     "Preencha o sistema ao lado ou use um exemplo.\nA resposta será exibida neste painel.";
-pub const FOOTER: &str = "Gauss-Jordan  /  aritmética racional exata";
+pub const FOOTER: &str = "Gauss-Jordan · Cramer · Escalonamento  /  aritmética racional exata";
+pub const THINK_FOOTER: &str = "Operações de linha e determinantes  /  aritmética racional exata";
+pub const THINK_SHORTCUTS: &str = "ESC  para voltar     ·     TAB  para navegar";
 pub const SHORTCUTS: &str = "ENTER  para resolver     ·     TAB  para navegar";
 pub const DEFAULT_HELPER: &str = "Aceita 2, -1,5 e 3/4. Use 0 se a variável não aparecer.";
 pub const EXAMPLE_HELPER: &str = "Exemplo pronto. Clique em Resolver sistema ou pressione Enter.";
@@ -34,8 +40,16 @@ pub const NOTE_UNIQUE: &str = "Solução única · valores exatos";
 pub const NOTE_INFINITE: &str = "Os parâmetros t1, t2, … são números reais livres.";
 pub const NOTE_NONE: &str = "Confira os coeficientes se esse não era o esperado.";
 pub const NOTE_COPY_FAILED: &str = "Não foi possível copiar agora. Tente novamente.";
-pub const COPY_LABEL: &str = "Copiar resultado";
-pub const COPIED_LABEL: &str = "Resultado copiado";
+pub const COPY_LABEL: &str = "Copiar";
+pub const COPIED_LABEL: &str = "Copiado";
+pub const THINK_LABEL: &str = "Modo pensar";
+pub const BACK_LABEL: &str = "Voltar";
+pub const COPY_STEPS_LABEL: &str = "Copiar passos";
+pub const COPIED_STEPS_LABEL: &str = "Passos copiados";
+pub const METHOD_LABEL: &str = "MÉTODO";
+pub const SYSTEM_LABEL: &str = "SEU SISTEMA";
+pub const ANSWER_LABEL: &str = "RESPOSTA";
+pub const COPY_STEPS_FAILED: &str = "Não foi possível copiar agora. Tente novamente.";
 pub const TITLE_UNIQUE: &str = "Solução encontrada";
 pub const TITLE_INFINITE: &str = "Infinitas soluções";
 pub const TITLE_NONE: &str = "Sem solução";
@@ -108,6 +122,11 @@ pub struct Model {
     last_result: Option<String>,
     note: String,
     copied: bool,
+    solved: Option<Vec<Vec<Rational>>>,
+    method: Method,
+    thinking: Option<Walkthrough>,
+    steps_copied: bool,
+    steps_copy_failed: bool,
 }
 
 impl Default for Model {
@@ -128,6 +147,11 @@ impl Model {
             last_result: None,
             note: NOTE_DEFAULT.to_string(),
             copied: false,
+            solved: None,
+            method: Method::GaussJordan,
+            thinking: None,
+            steps_copied: false,
+            steps_copy_failed: false,
         }
     }
 
@@ -215,6 +239,96 @@ impl Model {
             COPIED_LABEL
         } else {
             COPY_LABEL
+        }
+    }
+
+    pub fn think_enabled(&self) -> bool {
+        self.solved.is_some()
+    }
+
+    pub fn method(&self) -> Method {
+        self.method
+    }
+
+    pub fn is_thinking(&self) -> bool {
+        self.thinking.is_some()
+    }
+
+    pub fn walkthrough(&self) -> Option<&Walkthrough> {
+        self.thinking.as_ref()
+    }
+
+    pub fn steps_text(&self) -> Option<String> {
+        self.thinking.as_ref().map(Walkthrough::text)
+    }
+
+    pub fn steps_copy_label(&self) -> &'static str {
+        if self.steps_copied {
+            COPIED_STEPS_LABEL
+        } else {
+            COPY_STEPS_LABEL
+        }
+    }
+
+    pub fn steps_copy_failed(&self) -> bool {
+        self.steps_copy_failed
+    }
+
+    pub fn thinking_status(&self) -> String {
+        match &self.thinking {
+            Some(walkthrough) if self.steps_copy_failed => {
+                format!("{} · {COPY_STEPS_FAILED}", walkthrough.method.name())
+            }
+            Some(walkthrough) => format!(
+                "{} · {} passos",
+                walkthrough.method.name(),
+                walkthrough.steps.len()
+            ),
+            None => String::new(),
+        }
+    }
+
+    pub fn open_thinking(&mut self) -> bool {
+        let Some(matrix) = self.solved.as_ref() else {
+            return false;
+        };
+        match walkthrough(matrix, self.method) {
+            Ok(result) => {
+                self.thinking = Some(result);
+                self.steps_copied = false;
+                self.steps_copy_failed = false;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    pub fn close_thinking(&mut self) -> bool {
+        self.steps_copied = false;
+        self.steps_copy_failed = false;
+        self.thinking.take().is_some()
+    }
+
+    pub fn set_method(&mut self, method: Method) {
+        if self.method == method && self.thinking.is_some() {
+            return;
+        }
+        self.method = method;
+        if self.thinking.is_some() {
+            self.open_thinking();
+        }
+    }
+
+    pub fn copy_steps(&mut self, write: impl FnOnce(&str) -> bool) {
+        let Some(text) = self.steps_text() else {
+            return;
+        };
+        if write(&text.replace('\n', "\r\n")) {
+            self.steps_copied = true;
+            self.steps_copy_failed = false;
+        } else {
+            self.steps_copied = false;
+            self.steps_copy_failed = true;
         }
     }
 
@@ -308,6 +422,8 @@ impl Model {
         };
         let text = format(&solution);
         self.copied = false;
+        self.solved = Some(matrix);
+        self.thinking = None;
         self.outcome = match solution.kind {
             SolutionKind::Unique => {
                 self.note = NOTE_UNIQUE.to_string();
@@ -399,5 +515,9 @@ impl Model {
         self.last_result = None;
         self.note = NOTE_DEFAULT.to_string();
         self.copied = false;
+        self.solved = None;
+        self.thinking = None;
+        self.steps_copied = false;
+        self.steps_copy_failed = false;
     }
 }

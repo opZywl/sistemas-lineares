@@ -1,3 +1,5 @@
+use sistemas_lineares_core::Method;
+
 use crate::registry::{self, Key};
 
 pub const KEY: &str = r"Software\Lucas Lima\Sistemas Lineares";
@@ -9,6 +11,7 @@ const HEIGHT: &str = "Altura";
 const MAXIMIZED: &str = "Maximizada";
 const DPI: &str = "Dpi";
 const DIMENSION: &str = "Dimensao";
+const METHOD: &str = "Metodo";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Bounds {
@@ -39,6 +42,21 @@ pub struct Placement {
 pub struct Saved {
     pub placement: Option<Placement>,
     pub dimension: Option<usize>,
+    pub method: Option<Method>,
+}
+
+pub fn method_code(method: Method) -> u32 {
+    match method {
+        Method::GaussJordan => 0,
+        Method::Cramer => 1,
+        Method::Gauss => 2,
+    }
+}
+
+pub fn method_from_code(code: u32) -> Option<Method> {
+    Method::ALL
+        .into_iter()
+        .find(|method| method_code(*method) == code)
 }
 
 fn valid_dpi(dpi: u32) -> bool {
@@ -86,9 +104,11 @@ pub fn load(key: &str) -> Saved {
         3 => Some(3),
         _ => None,
     });
+    let method = key.dword(METHOD).and_then(method_from_code);
     Saved {
         placement,
         dimension,
+        method,
     }
 }
 
@@ -108,6 +128,9 @@ pub fn save(key: &str, saved: &Saved) -> bool {
     }
     if let Some(dimension) = saved.dimension {
         written &= key.set_dword(DIMENSION, dimension.clamp(2, 3) as u32);
+    }
+    if let Some(method) = saved.method {
+        written &= key.set_dword(METHOD, method_code(method));
     }
     written
 }

@@ -104,6 +104,19 @@ impl Viewport {
 }
 
 pub fn viewport(scale: f32, full_w: i32, full_h: i32, bar_w: i32, bar_h: i32) -> Viewport {
+    viewport_with(scale, full_w, full_h, bar_w, bar_h, &|_, height| {
+        d(scale, height)
+    })
+}
+
+pub fn viewport_with(
+    scale: f32,
+    full_w: i32,
+    full_h: i32,
+    bar_w: i32,
+    bar_h: i32,
+    content_height: &dyn Fn(i32, i32) -> i32,
+) -> Viewport {
     let mut horizontal = false;
     let mut vertical = false;
     let mut result = Viewport::default();
@@ -112,7 +125,7 @@ pub fn viewport(scale: f32, full_w: i32, full_h: i32, bar_w: i32, bar_h: i32) ->
         let client_h = full_h - if horizontal { bar_h } else { 0 };
         let (width, height) = content_size(scale, client_w, client_h, bar_w, bar_h);
         let content_w = d(scale, width);
-        let content_h = d(scale, height);
+        let content_h = content_height(width, height).max(d(scale, height));
         let need_horizontal = content_w > client_w;
         let need_vertical = content_h > client_h;
         result = Viewport {
@@ -183,9 +196,25 @@ pub struct Layout {
     pub general: Rect,
     pub note: Rect,
     pub copy: Rect,
+    pub think: Rect,
     pub footer: Rect,
     pub shortcut: Rect,
+    pub sheet: Rect,
+    pub back: Rect,
+    pub method_label: Rect,
+    pub methods: [Rect; 3],
+    pub copy_steps: Rect,
+    pub status_icon: Rect,
+    pub status: Rect,
+    pub sheet_content: Rect,
 }
+
+pub const SHEET_TOP: i32 = 238;
+pub const SHEET_CONTENT_TOP: i32 = 142;
+pub const SHEET_PADDING: i32 = 26;
+pub const FOOTER_GAP: i32 = 19;
+pub const FOOTER_ZONE: i32 = 62;
+const METHOD_WIDTHS: [i32; 3] = [132, 104, 146];
 
 pub const fn field_visible(dimension: usize, row: usize, column: usize) -> bool {
     row < dimension && (column < dimension || column == 3)
@@ -277,7 +306,7 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         helper: place(entry, 26, card_height - 113, left - 52, 42),
         solve: place(entry, 26, card_height - 64, 192, 42),
         example: place(entry, 228, card_height - 64, 155, 42),
-        clear: place(entry, left - 115, card_height - 64, 89, 42),
+        clear: place(entry, left - 138, card_height - 64, 112, 42),
         solution_label: place(solution, 26, 26, right - 52, 24),
         solution_title: place(solution, 26, 65, right - 52, 35),
         solution_description: place(solution, 26, 106, right - 52, 52),
@@ -286,7 +315,14 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         empty_description: place(solution, 25, 277, right - 50, 64),
         general: place(solution, 26, 170, right - 52, card_height - 286),
         note: place(solution, 26, card_height - 110, right - 52, 38),
-        copy: place(solution, 26, card_height - 64, right - 52, 42),
+        think: place(solution, 26, card_height - 64, (right - 62) / 2, 42),
+        copy: place(
+            solution,
+            36 + (right - 62) / 2,
+            card_height - 64,
+            right - 62 - (right - 62) / 2,
+            42,
+        ),
         footer: place(root, 33, height - 43, 470, 25),
         shortcut: place(root, width - 485, height - 43, 450, 25),
         ..Layout::default()
@@ -324,5 +360,43 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         );
     }
     layout.note.y = layout.note.y.max(layout.tiles[2].bottom());
+    let sheet = place(root, 32, SHEET_TOP, width - 64, card_height);
+    layout.sheet = sheet;
+    layout.back = place(sheet, SHEET_PADDING, 24, 118, 42);
+    layout.method_label = place(sheet, SHEET_PADDING + 146, 24, 74, 42);
+    let mut x = SHEET_PADDING + 146 + 80;
+    for (index, method_width) in METHOD_WIDTHS.into_iter().enumerate() {
+        layout.methods[index] = place(sheet, x, 24, method_width, 42);
+        x += method_width + 6;
+    }
+    layout.copy_steps = place(sheet, width - 64 - SHEET_PADDING - 172, 24, 172, 42);
+    layout.status_icon = place(sheet, SHEET_PADDING, 94, 26, 26);
+    layout.status = place(
+        sheet,
+        SHEET_PADDING + 39,
+        88,
+        width - 64 - 2 * SHEET_PADDING - 39,
+        33,
+    );
+    layout.sheet_content = place(
+        sheet,
+        SHEET_PADDING,
+        SHEET_CONTENT_TOP,
+        width - 64 - 2 * SHEET_PADDING,
+        0,
+    );
     layout
+}
+
+impl Layout {
+    pub fn with_sheet_bottom(mut self, content_bottom: i32) -> Layout {
+        let scale = self.scale;
+        let bottom = (content_bottom + d(scale, SHEET_PADDING)).max(self.sheet.bottom());
+        self.sheet.h = bottom - self.sheet.y;
+        let footer_y = bottom + d(scale, FOOTER_GAP);
+        self.footer.y = footer_y;
+        self.shortcut.y = footer_y;
+        self.content_h = self.content_h.max(bottom + d(scale, FOOTER_ZONE));
+        self
+    }
 }

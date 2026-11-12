@@ -104,6 +104,12 @@ pub struct Palette {
     pub link: Color,
     pub link_muted: Color,
     pub link_focus: Color,
+    pub operation: Color,
+    pub badge_fill: Color,
+    pub badge_text: Color,
+    pub pivot: Color,
+    pub marked_fill: Option<Color>,
+    pub marked_stroke: Option<Color>,
 }
 
 impl Palette {
@@ -145,6 +151,12 @@ impl Palette {
             link: INK,
             link_muted: MUTED,
             link_focus: ACCENT,
+            operation: ACCENT,
+            badge_fill: ACCENT,
+            badge_text: CANVAS,
+            pivot: ACCENT,
+            marked_fill: Some(SOFT),
+            marked_stroke: None,
         }
     }
 
@@ -186,6 +198,12 @@ impl Palette {
             link: system.hot_light,
             link_muted: system.hot_light,
             link_focus: system.window_text,
+            operation: system.window_text,
+            badge_fill: system.highlight,
+            badge_text: system.highlight_text,
+            pivot: system.highlight,
+            marked_fill: None,
+            marked_stroke: Some(system.window_text),
         }
     }
 }
@@ -205,10 +223,13 @@ pub enum Font {
     Large,
     Value,
     Input,
+    Title,
 }
 
 impl Font {
-    pub const ALL: [Font; 7] = [
+    pub const COUNT: usize = 8;
+
+    pub const ALL: [Font; Font::COUNT] = [
         Font::Small,
         Font::Body,
         Font::Medium,
@@ -216,6 +237,7 @@ impl Font {
         Font::Large,
         Font::Value,
         Font::Input,
+        Font::Title,
     ];
 
     pub const fn points(self) -> u32 {
@@ -225,14 +247,14 @@ impl Font {
             Font::Heading => 16,
             Font::Large => 31,
             Font::Value => 24,
-            Font::Input => 12,
+            Font::Input | Font::Title => 12,
         }
     }
 
     pub const fn bold(self) -> bool {
         matches!(
             self,
-            Font::Medium | Font::Heading | Font::Large | Font::Value
+            Font::Medium | Font::Heading | Font::Large | Font::Value | Font::Title
         )
     }
 
@@ -245,6 +267,7 @@ impl Font {
             Font::Large => 4,
             Font::Value => 5,
             Font::Input => 6,
+            Font::Title => 7,
         }
     }
 
@@ -326,11 +349,17 @@ mod tests {
             palette.link,
             palette.link_muted,
             palette.link_focus,
+            palette.operation,
+            palette.badge_fill,
+            palette.badge_text,
+            palette.pivot,
         ];
         for color in used {
             assert!(allowed.contains(&color), "{color:?}");
         }
         assert!(palette.card_highlight.is_none());
+        assert!(palette.marked_fill.is_none());
+        assert_eq!(palette.marked_stroke, Some(system.window_text));
         assert_eq!(palette.canvas, system.window);
         assert_eq!(palette.ink, system.window_text);
         assert_eq!(palette.accent_fill, system.highlight);

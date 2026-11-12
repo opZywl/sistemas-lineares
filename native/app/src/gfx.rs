@@ -147,6 +147,20 @@ fn wrap(paragraph: &str, available: i32, measure: &dyn Fn(&str) -> i32) -> Vec<S
     lines
 }
 
+pub fn wrap_lines(text: &str, available: i32, measure: &dyn Fn(&str) -> i32) -> Vec<String> {
+    let available = available.max(1);
+    text.split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .flat_map(|line| {
+            if measure(line) <= available {
+                vec![line.to_string()]
+            } else {
+                wrap(line, available, measure)
+            }
+        })
+        .collect()
+}
+
 struct PlacedLine {
     text: String,
     x: i32,
@@ -251,7 +265,7 @@ pub struct Engine {
     icons: Vec<ID2D1PathGeometry>,
     dpi: u32,
     formats: Vec<IDWriteTextFormat>,
-    metrics: [TextMetrics; 7],
+    metrics: [TextMetrics; Font::COUNT],
     target: Option<ID2D1DCRenderTarget>,
     brush: Option<ID2D1SolidColorBrush>,
     cache: RefCell<HashMap<(Font, String), CachedText>>,
@@ -481,7 +495,7 @@ impl Engine {
                 icons,
                 dpi: 0,
                 formats: Vec::new(),
-                metrics: [TextMetrics::default(); 7],
+                metrics: [TextMetrics::default(); Font::COUNT],
                 target: None,
                 brush: None,
                 cache: RefCell::new(HashMap::new()),
@@ -710,7 +724,7 @@ impl Engine {
 pub struct GdiResources {
     dpi: u32,
     fonts: Vec<Option<GdiFont>>,
-    metrics: [TextMetrics; 7],
+    metrics: [TextMetrics; Font::COUNT],
 }
 
 impl GdiResources {
@@ -720,7 +734,7 @@ impl GdiResources {
             .iter()
             .map(|role| GdiFont::for_role(*role, dpi))
             .collect();
-        let mut metrics = [TextMetrics::default(); 7];
+        let mut metrics = [TextMetrics::default(); Font::COUNT];
         for role in Font::ALL {
             let pixels = role.pixels(dpi);
             metrics[role.index()] = fonts[role.index()]
@@ -749,7 +763,11 @@ impl GdiResources {
         self.fonts.get(font.index()).and_then(Option::as_ref)
     }
 
-    fn measure(&self, text: &str, font: Font) -> i32 {
+    pub fn text_metrics(&self, font: Font) -> TextMetrics {
+        self.metrics[font.index()]
+    }
+
+    pub fn measure(&self, text: &str, font: Font) -> i32 {
         self.font(font)
             .and_then(|gdi_font| gdi_extent(gdi_font, text))
             .unwrap_or(0)

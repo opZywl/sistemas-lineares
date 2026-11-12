@@ -5,6 +5,7 @@ use sistemas_lineares::install::{self, Removal, Targets};
 use sistemas_lineares::registry::{self, Key};
 use sistemas_lineares::settings::{self, Bounds, Placement, Saved};
 use sistemas_lineares::{Launch, create, message_loop};
+use sistemas_lineares_core::Method;
 use windows::Win32::Storage::FileSystem::WIN32_FIND_DATAW;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, IPersistFile,
@@ -204,7 +205,8 @@ fn instala_reinstala_e_desinstala_em_pasta_de_teste() {
                 maximized: false,
                 dpi: 96
             }),
-            dimension: Some(3)
+            dimension: Some(3),
+            method: Some(Method::Cramer)
         }
     ));
     assert!(registry::exists(&alvos.settings_key));

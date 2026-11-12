@@ -56,6 +56,8 @@ use crate::layout::{self, Layout, Metrics, Rect, Viewport, d};
 use crate::model::{self, Focus, Model, Outcome};
 use crate::settings::{self, Bounds, Placement, Saved};
 use crate::theme::{Color, Font, Palette, SystemColors};
+use crate::thinking::{self, Ink, Item, Measure, Page, STEP_POOL};
+use sistemas_lineares_core::Method;
 
 pub const ID_TWO: u16 = 100;
 pub const ID_THREE: u16 = 101;
@@ -65,6 +67,12 @@ pub const ID_EXAMPLE: u16 = 131;
 pub const ID_CLEAR: u16 = 132;
 pub const ID_COPY: u16 = 133;
 pub const ID_AUTHOR: u16 = 134;
+pub const ID_THINK: u16 = 135;
+pub const ID_BACK: u16 = 136;
+pub const ID_METHOD: u16 = 137;
+pub const ID_COPY_STEPS: u16 = 160;
+pub const ID_STATUS: u16 = 157;
+pub const ID_STEP: u16 = 200;
 pub const ID_VALUE: u16 = 140;
 pub const ID_GENERAL: u16 = 143;
 pub const ID_DIMENSION: u16 = 150;
@@ -88,10 +96,16 @@ pub enum Button {
     Clear,
     Copy,
     Author,
+    Think,
+    Back,
+    MethodGaussJordan,
+    MethodCramer,
+    MethodGauss,
+    CopySteps,
 }
 
 impl Button {
-    pub const ALL: [Button; 7] = [
+    pub const ALL: [Button; 13] = [
         Button::Two,
         Button::Three,
         Button::Solve,
@@ -99,7 +113,41 @@ impl Button {
         Button::Clear,
         Button::Copy,
         Button::Author,
+        Button::Think,
+        Button::Back,
+        Button::MethodGaussJordan,
+        Button::MethodCramer,
+        Button::MethodGauss,
+        Button::CopySteps,
     ];
+
+    pub const fn method(self) -> Option<Method> {
+        match self {
+            Button::MethodGaussJordan => Some(Method::GaussJordan),
+            Button::MethodCramer => Some(Method::Cramer),
+            Button::MethodGauss => Some(Method::Gauss),
+            _ => None,
+        }
+    }
+
+    pub const fn for_method(method: Method) -> Button {
+        match method {
+            Method::GaussJordan => Button::MethodGaussJordan,
+            Method::Cramer => Button::MethodCramer,
+            Method::Gauss => Button::MethodGauss,
+        }
+    }
+
+    pub const fn thinking(self) -> bool {
+        matches!(
+            self,
+            Button::Back
+                | Button::MethodGaussJordan
+                | Button::MethodCramer
+                | Button::MethodGauss
+                | Button::CopySteps
+        )
+    }
 
     pub const fn id(self) -> u16 {
         match self {
@@ -110,6 +158,12 @@ impl Button {
             Button::Clear => ID_CLEAR,
             Button::Copy => ID_COPY,
             Button::Author => ID_AUTHOR,
+            Button::Think => ID_THINK,
+            Button::Back => ID_BACK,
+            Button::MethodGaussJordan => ID_METHOD,
+            Button::MethodCramer => ID_METHOD + 1,
+            Button::MethodGauss => ID_METHOD + 2,
+            Button::CopySteps => ID_COPY_STEPS,
         }
     }
 
@@ -126,6 +180,12 @@ impl Button {
             Button::Clear => 4,
             Button::Copy => 5,
             Button::Author => 6,
+            Button::Think => 7,
+            Button::Back => 8,
+            Button::MethodGaussJordan => 9,
+            Button::MethodCramer => 10,
+            Button::MethodGauss => 11,
+            Button::CopySteps => 12,
         }
     }
 
@@ -138,17 +198,29 @@ impl Button {
             Button::Clear => model::CLEAR_LABEL,
             Button::Copy => model::COPY_LABEL,
             Button::Author => model::AUTHOR_LABEL,
+            Button::Think => model::THINK_LABEL,
+            Button::Back => model::BACK_LABEL,
+            Button::MethodGaussJordan => Method::GaussJordan.label(),
+            Button::MethodCramer => Method::Cramer.label(),
+            Button::MethodGauss => Method::Gauss.label(),
+            Button::CopySteps => model::COPY_STEPS_LABEL,
         }
     }
 
     const fn icon(self) -> Option<Icon> {
         match self {
-            Button::Two | Button::Three => None,
+            Button::Two
+            | Button::Three
+            | Button::MethodGaussJordan
+            | Button::MethodCramer
+            | Button::MethodGauss => None,
             Button::Solve => Some(Icon::ArrowRight),
             Button::Example => Some(Icon::Sparkles),
             Button::Clear => Some(Icon::Reset),
-            Button::Copy => Some(Icon::Copy),
+            Button::Copy | Button::CopySteps => Some(Icon::Copy),
             Button::Author => Some(Icon::External),
+            Button::Think => Some(Icon::Bulb),
+            Button::Back => Some(Icon::ArrowLeft),
         }
     }
 
@@ -157,7 +229,15 @@ impl Button {
     }
 
     const fn quiet(self) -> bool {
-        matches!(self, Button::Two | Button::Three | Button::Author)
+        matches!(
+            self,
+            Button::Two
+                | Button::Three
+                | Button::Author
+                | Button::MethodGaussJordan
+                | Button::MethodCramer
+                | Button::MethodGauss
+        )
     }
 
     fn rect(self, layout: &Layout) -> Rect {
@@ -169,6 +249,12 @@ impl Button {
             Button::Clear => layout.clear,
             Button::Copy => layout.copy,
             Button::Author => layout.author,
+            Button::Think => layout.think,
+            Button::Back => layout.back,
+            Button::MethodGaussJordan => layout.methods[0],
+            Button::MethodCramer => layout.methods[1],
+            Button::MethodGauss => layout.methods[2],
+            Button::CopySteps => layout.copy_steps,
         }
     }
 }
@@ -182,10 +268,11 @@ enum Label {
     EmptyTitle,
     EmptyDescription,
     Note,
+    Status,
 }
 
 impl Label {
-    const ALL: [Label; 7] = [
+    const ALL: [Label; 8] = [
         Label::Dimension,
         Label::Helper,
         Label::Title,
@@ -193,6 +280,7 @@ impl Label {
         Label::EmptyTitle,
         Label::EmptyDescription,
         Label::Note,
+        Label::Status,
     ];
 
     const fn id(self) -> u16 {
@@ -204,6 +292,7 @@ impl Label {
             Label::EmptyTitle => ID_EMPTY_TITLE,
             Label::EmptyDescription => ID_EMPTY_DESCRIPTION,
             Label::Note => ID_NOTE,
+            Label::Status => ID_STATUS,
         }
     }
 
@@ -214,7 +303,7 @@ impl Label {
     const fn font(self) -> Font {
         match self {
             Label::Dimension | Label::Helper | Label::Note => Font::Small,
-            Label::Title | Label::EmptyTitle => Font::Heading,
+            Label::Title | Label::EmptyTitle | Label::Status => Font::Heading,
             Label::Description | Label::EmptyDescription => Font::Body,
         }
     }
@@ -226,12 +315,13 @@ impl Label {
             Label::Helper => palette.muted,
             Label::Title | Label::EmptyTitle => palette.solution_text,
             Label::Description | Label::EmptyDescription | Label::Note => palette.solution_muted,
+            Label::Status => palette.ink,
         }
     }
 
     const fn background(self, palette: &Palette) -> Color {
         match self {
-            Label::Dimension | Label::Helper => palette.surface,
+            Label::Dimension | Label::Helper | Label::Status => palette.surface,
             _ => palette.solution_fill,
         }
     }
@@ -247,7 +337,7 @@ impl Label {
     const fn live(self) -> bool {
         matches!(
             self,
-            Label::Dimension | Label::Helper | Label::Title | Label::Note
+            Label::Dimension | Label::Helper | Label::Title | Label::Note | Label::Status
         )
     }
 
@@ -260,6 +350,7 @@ impl Label {
             Label::EmptyTitle => layout.empty_title,
             Label::EmptyDescription => layout.empty_description,
             Label::Note => layout.note,
+            Label::Status => layout.status,
         }
     }
 }
@@ -271,9 +362,13 @@ enum Control {
     Value(usize),
     General,
     Label(Label),
+    Step(usize),
 }
 
 fn classify(id: u16) -> Option<Control> {
+    if (ID_STEP..ID_STEP + STEP_POOL as u16).contains(&id) {
+        return Some(Control::Step(usize::from(id - ID_STEP)));
+    }
     if let Some(button) = Button::from_id(id) {
         return Some(Control::Button(button));
     }
@@ -303,6 +398,12 @@ pub struct Handles {
     pub clear: HWND,
     pub copy: HWND,
     pub author: HWND,
+    pub think: HWND,
+    pub back: HWND,
+    pub methods: [HWND; 3],
+    pub copy_steps: HWND,
+    pub status: HWND,
+    pub steps: [HWND; STEP_POOL],
     pub values: [HWND; 3],
     pub general: HWND,
     pub dimension: HWND,
@@ -324,6 +425,12 @@ impl Handles {
             Button::Clear => self.clear,
             Button::Copy => self.copy,
             Button::Author => self.author,
+            Button::Think => self.think,
+            Button::Back => self.back,
+            Button::MethodGaussJordan => self.methods[0],
+            Button::MethodCramer => self.methods[1],
+            Button::MethodGauss => self.methods[2],
+            Button::CopySteps => self.copy_steps,
         }
     }
 
@@ -336,6 +443,7 @@ impl Handles {
             Label::EmptyTitle => self.empty_title,
             Label::EmptyDescription => self.empty_description,
             Label::Note => self.note,
+            Label::Status => self.status,
         }
     }
 
@@ -361,6 +469,9 @@ impl Handles {
         }
         if self.general == hwnd {
             return Some(Control::General);
+        }
+        if let Some(index) = self.steps.iter().position(|step| *step == hwnd) {
+            return Some(Control::Step(index));
         }
         Label::ALL
             .into_iter()
@@ -427,6 +538,10 @@ pub struct Diagnostics {
     pub layout: Layout,
     pub live_regions: usize,
     pub annotated: usize,
+    pub thinking: bool,
+    pub method: Method,
+    pub steps: usize,
+    pub page_bottom: i32,
 }
 
 struct Brushes(Vec<(Color, HBRUSH)>);
@@ -505,6 +620,7 @@ struct View {
     value_font: Option<GdiFont>,
     icons: Option<Icons>,
     wheel: (i32, i32),
+    page: Page,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -528,7 +644,7 @@ struct App {
     brushes: RefCell<Brushes>,
     syncing: Cell<bool>,
     in_layout: Cell<bool>,
-    hover: [Cell<bool>; 7],
+    hover: [Cell<bool>; 13],
     last_focus: Cell<HWND>,
     quit_on_destroy: bool,
     settings_key: Option<String>,
@@ -902,9 +1018,12 @@ pub fn create(launch: &Launch) -> Result<Handles> {
         };
         let high_contrast = launch.high_contrast.unwrap_or_else(system_high_contrast);
         let app = Rc::new(App::new(instance, dpi, launch, palette_for(high_contrast)));
-        if let Some(dimension) = saved.dimension {
-            if let Ok(mut model) = app.model.try_borrow_mut() {
+        if let Ok(mut model) = app.model.try_borrow_mut() {
+            if let Some(dimension) = saved.dimension {
                 model.change_dimension(dimension);
+            }
+            if let Some(method) = saved.method {
+                model.set_method(method);
             }
         }
         let main = CreateWindowExW(
@@ -1092,6 +1211,18 @@ pub fn diagnostics(main: HWND) -> Option<Diagnostics> {
         layout: view.layout,
         live_regions: app.live.get(),
         annotated: app.annotated.try_borrow().map_or(0, |list| list.len()),
+        thinking: app
+            .model
+            .try_borrow()
+            .map(|model| model.is_thinking())
+            .unwrap_or(false),
+        method: app
+            .model
+            .try_borrow()
+            .map(|model| model.method())
+            .unwrap_or_default(),
+        steps: view.page.steps.len(),
+        page_bottom: view.page.bottom,
     })
 }
 
@@ -1223,6 +1354,7 @@ impl App {
                 value_font: None,
                 icons: None,
                 wheel: (0, 0),
+                page: Page::default(),
             }),
             engine: RefCell::new(None),
             fallback: RefCell::new(None),
@@ -1438,6 +1570,13 @@ impl App {
                 | WINDOW_STYLE((ES_LEFT | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32),
             ID_GENERAL,
         )?;
+        handles.think = self.child(
+            canvas,
+            w!("BUTTON"),
+            Button::Think.label(),
+            button_style,
+            ID_THINK,
+        )?;
         handles.copy = self.child(
             canvas,
             w!("BUTTON"),
@@ -1445,6 +1584,41 @@ impl App {
             button_style,
             ID_COPY,
         )?;
+        let hidden_button = WS_CHILD | WS_TABSTOP | WINDOW_STYLE(BS_OWNERDRAW as u32);
+        handles.back = self.child(
+            canvas,
+            w!("BUTTON"),
+            Button::Back.label(),
+            hidden_button,
+            ID_BACK,
+        )?;
+        for (index, method) in Method::ALL.into_iter().enumerate() {
+            let button = Button::for_method(method);
+            handles.methods[index] = self.child(
+                canvas,
+                w!("BUTTON"),
+                button.label(),
+                hidden_button,
+                button.id(),
+            )?;
+        }
+        handles.copy_steps = self.child(
+            canvas,
+            w!("BUTTON"),
+            Button::CopySteps.label(),
+            hidden_button,
+            ID_COPY_STEPS,
+        )?;
+        handles.status = self.child(canvas, w!("STATIC"), "", label_style, ID_STATUS)?;
+        for index in 0..STEP_POOL {
+            handles.steps[index] = self.child(
+                canvas,
+                w!("STATIC"),
+                "",
+                label_style,
+                ID_STEP + index as u16,
+            )?;
+        }
         handles.author = self.child(
             canvas,
             w!("BUTTON"),
@@ -1454,6 +1628,7 @@ impl App {
         )?;
         unsafe {
             let _ = EnableWindow(handles.copy, false);
+            let _ = EnableWindow(handles.think, false);
         }
         handles.tooltip = self.create_tooltip(main, canvas, &handles);
         self.handles.set(handles);
@@ -1650,6 +1825,12 @@ impl App {
             for index in 0..3 {
                 name(handles.values[index], &model::accessible_value_name(index));
             }
+            for method in Method::ALL {
+                name(
+                    handles.button(Button::for_method(method)),
+                    &format!("Método {}", method.name()),
+                );
+            }
             if service
                 .SetHwndPropStr(
                     handles.author,
@@ -1811,6 +1992,7 @@ impl App {
             Some((bounds_of(rect), unsafe { GetDpiForWindow(hwnd) }.max(48)))
         });
         let dimension = self.model.try_borrow().map(|model| model.dimension()).ok();
+        let method = self.model.try_borrow().map(|model| model.method()).ok();
         let saved = Saved {
             placement: normal.map(|(bounds, dpi)| Placement {
                 bounds,
@@ -1818,6 +2000,7 @@ impl App {
                 dpi,
             }),
             dimension,
+            method,
         };
         settings::save(key, &saved);
     }
@@ -2054,7 +2237,10 @@ impl App {
                         }
                     }
                 }
-                (Some(Control::Button(_)) | Some(Control::Label(_)), WM_ERASEBKGND) => {
+                (
+                    Some(Control::Button(_)) | Some(Control::Label(_)) | Some(Control::Step(_)),
+                    WM_ERASEBKGND,
+                ) => {
                     return LRESULT(1);
                 }
                 (Some(Control::Button(_)), BM_SETSTYLE) => {
@@ -2128,6 +2314,12 @@ impl App {
     }
 
     fn command(&self, id: u16, code: u16) {
+        if i32::from(id) == IDCANCEL.0 {
+            if self.thinking() {
+                self.close_thinking();
+            }
+            return;
+        }
         match classify(id) {
             Some(Control::Button(button)) if u32::from(code) == BN_CLICKED => match button {
                 Button::Two => self.change_dimension(2),
@@ -2137,6 +2329,14 @@ impl App {
                 Button::Clear => self.clear(),
                 Button::Copy => self.copy(),
                 Button::Author => self.open_author(),
+                Button::Think => self.open_thinking(),
+                Button::Back => self.close_thinking(),
+                Button::MethodGaussJordan | Button::MethodCramer | Button::MethodGauss => {
+                    if let Some(method) = button.method() {
+                        self.choose_method(method);
+                    }
+                }
+                Button::CopySteps => self.copy_steps(),
             },
             Some(Control::Input(row, column)) if u32::from(code) == EN_CHANGE => {
                 self.input_changed(row, column)
@@ -2224,6 +2424,106 @@ impl App {
         );
     }
 
+    fn thinking(&self) -> bool {
+        self.model
+            .try_borrow()
+            .map(|model| model.is_thinking())
+            .unwrap_or(false)
+    }
+
+    fn repaint_all(&self) {
+        let canvas = self.handles.get().canvas;
+        if canvas.is_invalid() {
+            return;
+        }
+        unsafe {
+            let _ = RedrawWindow(
+                Some(canvas),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            );
+        }
+    }
+
+    fn reset_scroll(&self) {
+        if let Ok(mut view) = self.view.try_borrow_mut() {
+            view.scroll = (0, 0);
+            view.wheel = (0, 0);
+        }
+    }
+
+    fn open_thinking(&self) {
+        let (opened, method) = match self.model.try_borrow_mut() {
+            Ok(mut model) => (model.open_thinking(), model.method()),
+            Err(_) => return,
+        };
+        if !opened {
+            return;
+        }
+        self.reset_scroll();
+        self.relayout(false);
+        self.sync(None, false, Announce::Label(Label::Status));
+        let target = self.handles.get().button(Button::for_method(method));
+        unsafe {
+            let _ = SetFocus(Some(target));
+        }
+        self.scroll_to(0, 0);
+        self.repaint_all();
+    }
+
+    fn close_thinking(&self) {
+        let closed = match self.model.try_borrow_mut() {
+            Ok(mut model) => model.close_thinking(),
+            Err(_) => return,
+        };
+        if !closed {
+            return;
+        }
+        self.reset_scroll();
+        self.relayout(false);
+        self.sync(None, false, Announce::Nothing);
+        let think = self.handles.get().think;
+        unsafe {
+            let _ = SetFocus(Some(think));
+        }
+        self.repaint_all();
+    }
+
+    fn choose_method(&self, method: Method) {
+        match self.model.try_borrow_mut() {
+            Ok(mut model) => model.set_method(method),
+            Err(_) => return,
+        }
+        self.relayout(false);
+        self.sync(None, false, Announce::Label(Label::Status));
+        self.repaint_all();
+    }
+
+    fn copy_steps(&self) {
+        let text = self
+            .model
+            .try_borrow()
+            .ok()
+            .and_then(|model| model.steps_text());
+        let Some(text) = text else {
+            return;
+        };
+        let copied = clipboard::set_text(self.handles.get().main, &text.replace('\n', "\r\n"));
+        if let Ok(mut model) = self.model.try_borrow_mut() {
+            model.copy_steps(|_| copied);
+        }
+        self.sync(
+            None,
+            false,
+            if copied {
+                Announce::Nothing
+            } else {
+                Announce::Label(Label::Status)
+            },
+        );
+    }
+
     fn open_author(&self) {
         let main = self.handles.get().main;
         let result = unsafe {
@@ -2283,12 +2583,44 @@ impl App {
         set_text(handles.description, model.description().unwrap_or(""));
         set_text(handles.note, model.note());
         set_text(handles.copy, model.copy_label());
+        set_text(handles.copy_steps, model.steps_copy_label());
+        set_text(handles.status, &model.thinking_status());
         unsafe {
             if IsWindowEnabled(handles.copy).as_bool() != model.copy_enabled() {
                 let _ = EnableWindow(handles.copy, model.copy_enabled());
             }
+            if IsWindowEnabled(handles.think).as_bool() != model.think_enabled() {
+                let _ = EnableWindow(handles.think, model.think_enabled());
+            }
         }
         invalidate(handles.copy);
+        invalidate(handles.think);
+        invalidate(handles.copy_steps);
+        for method in Method::ALL {
+            let hwnd = handles.button(Button::for_method(method));
+            let name = if model.method() == method {
+                format!("Método {}, selecionado", method.name())
+            } else {
+                format!("Método {}", method.name())
+            };
+            self.set_accessible_name(hwnd, &name);
+            invalidate(hwnd);
+        }
+        let steps: Vec<String> = model
+            .walkthrough()
+            .map(|walkthrough| {
+                walkthrough
+                    .steps
+                    .iter()
+                    .enumerate()
+                    .map(|(index, step)| thinking::step_text(index, step))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (index, hwnd) in handles.steps.into_iter().enumerate() {
+            set_text(hwnd, steps.get(index).map_or("", String::as_str));
+            invalidate(hwnd);
+        }
         for index in 0..3 {
             let value = model.values().get(index).map_or("", String::as_str);
             if set_text(handles.values[index], value) {
@@ -2358,26 +2690,34 @@ impl App {
             return;
         }
         let layout = self.layout();
-        let Ok((dimension, outcome)) = self
-            .model
-            .try_borrow()
-            .map(|model| (model.dimension(), model.outcome().clone()))
-        else {
+        let Ok((dimension, outcome, thinking)) = self.model.try_borrow().map(|model| {
+            (
+                model.dimension(),
+                model.outcome().clone(),
+                model.is_thinking(),
+            )
+        }) else {
             return;
         };
+        let step_rects: Vec<Rect> = self
+            .view
+            .try_borrow()
+            .map(|view| view.page.steps.iter().map(|step| step.rect).collect())
+            .unwrap_or_default();
         let empty = outcome == Outcome::Empty;
         let values = match &outcome {
             Outcome::Unique(values) => values.len(),
             _ => 0,
         };
         let general = matches!(outcome, Outcome::Infinite(_) | Outcome::NoSolution(_));
-        let mut entries: Vec<(HWND, Rect, bool)> = Vec::with_capacity(40);
+        let mut entries: Vec<(HWND, Rect, bool)> = Vec::with_capacity(72);
         for button in Button::ALL {
-            entries.push((handles.button(button), button.rect(&layout), true));
+            let visible = button == Button::Author || button.thinking() == thinking;
+            entries.push((handles.button(button), button.rect(&layout), visible));
         }
         for row in 0..3 {
             for column in 0..4 {
-                let visible = layout::field_visible(dimension, row, column);
+                let visible = !thinking && layout::field_visible(dimension, row, column);
                 let rect = if visible {
                     layout.editors[row][column]
                 } else {
@@ -2388,6 +2728,8 @@ impl App {
         }
         for label in Label::ALL {
             let visible = match label {
+                Label::Status => thinking,
+                _ if thinking => false,
                 Label::Title | Label::Description => !empty,
                 Label::EmptyTitle | Label::EmptyDescription => empty,
                 _ => true,
@@ -2398,10 +2740,14 @@ impl App {
             entries.push((
                 handles.values[index],
                 layout.tile_values[index],
-                index < values,
+                !thinking && index < values,
             ));
         }
-        entries.push((handles.general, layout.general, general));
+        entries.push((handles.general, layout.general, !thinking && general));
+        for (index, hwnd) in handles.steps.into_iter().enumerate() {
+            let rect = step_rects.get(index).copied();
+            entries.push((hwnd, rect.unwrap_or_default(), thinking && rect.is_some()));
+        }
         let focus = unsafe { GetFocus() };
         let focus_hidden = entries
             .iter()
@@ -2440,7 +2786,16 @@ impl App {
         }
         if focus_hidden {
             unsafe {
-                let _ = SetFocus(Some(handles.inputs[0][0]));
+                let _ = SetFocus(Some(if thinking {
+                    handles.back
+                } else {
+                    handles.inputs[0][0]
+                }));
+            }
+        }
+        if thinking {
+            for hwnd in handles.steps {
+                invalidate(hwnd);
             }
         }
     }
@@ -2454,6 +2809,28 @@ impl App {
         let bar_w = unsafe { GetSystemMetricsForDpi(SM_CXVSCROLL, dpi) };
         let bar_h = unsafe { GetSystemMetricsForDpi(SM_CYHSCROLL, dpi) };
         let dimension = self.model.try_borrow().map_or(2, |model| model.dimension());
+        let walkthrough = self
+            .model
+            .try_borrow()
+            .ok()
+            .and_then(|model| model.walkthrough().cloned());
+        let metrics = self
+            .view
+            .try_borrow()
+            .map(|view| view.metrics)
+            .unwrap_or_default();
+        let arrange = |width: i32, height: i32| -> (Layout, Page) {
+            let layout = layout::compute(scale, width, height, dimension, metrics);
+            match &walkthrough {
+                Some(walkthrough) => {
+                    let page = self.with_measure(dpi, &|measure| {
+                        thinking::page(walkthrough, measure, scale, layout.sheet_content)
+                    });
+                    (layout.with_sheet_bottom(page.bottom), page)
+                }
+                None => (layout, Page::default()),
+            }
+        };
         for _ in 0..3 {
             let mut client = RECT::default();
             let style = unsafe {
@@ -2462,18 +2839,20 @@ impl App {
             };
             let full_w = client.right + if style & WS_VSCROLL.0 != 0 { bar_w } else { 0 };
             let full_h = client.bottom + if style & WS_HSCROLL.0 != 0 { bar_h } else { 0 };
-            let viewport = layout::viewport(scale, full_w, full_h, bar_w, bar_h);
+            let viewport = if walkthrough.is_some() {
+                layout::viewport_with(scale, full_w, full_h, bar_w, bar_h, &|width, height| {
+                    arrange(width, height).0.content_h
+                })
+            } else {
+                layout::viewport(scale, full_w, full_h, bar_w, bar_h)
+            };
+            let (arranged, page) = arrange(viewport.width, viewport.height);
             let scroll = match self.view.try_borrow_mut() {
                 Ok(mut view) => {
                     let (max_x, max_y) = viewport.max_scroll();
                     view.scroll = (view.scroll.0.clamp(0, max_x), view.scroll.1.clamp(0, max_y));
-                    view.layout = layout::compute(
-                        scale,
-                        viewport.width,
-                        viewport.height,
-                        dimension,
-                        view.metrics,
-                    );
+                    view.layout = arranged;
+                    view.page = page;
                     view.viewport = viewport;
                     view.scroll
                 }
@@ -2535,6 +2914,11 @@ impl App {
             Control::Value(index) => Some(layout.tiles[index]),
             Control::General => Some(layout.general),
             Control::Label(label) => Some(label.rect(&layout)),
+            Control::Step(index) => self
+                .view
+                .try_borrow()
+                .ok()
+                .and_then(|view| view.page.steps.get(index).map(|step| step.rect)),
         }
     }
 
@@ -2808,6 +3192,9 @@ impl App {
     }
 
     fn canvas_click(&self, x: i32, y: i32) {
+        if self.thinking() {
+            return;
+        }
         let handles = self.handles.get();
         let layout = self.layout();
         let dimension = self.model.try_borrow().map_or(2, |model| model.dimension());
@@ -2835,6 +3222,7 @@ impl App {
             Some(Control::Label(label)) => {
                 (label.color(&palette, false), label.background(&palette))
             }
+            Some(Control::Step(_)) => (palette.ink, palette.surface),
             _ => (palette.ink, palette.canvas),
         };
         unsafe {
@@ -2843,6 +3231,31 @@ impl App {
             SetBkMode(hdc, OPAQUE);
         }
         LRESULT(self.brush(back).0 as isize)
+    }
+
+    fn with_measure<R>(&self, dpi: u32, work: &dyn Fn(&dyn Measure) -> R) -> R {
+        if self.renderer == Renderer::Direct2D {
+            if let Ok(engine) = self.engine.try_borrow() {
+                if let Some(engine) = engine.as_ref() {
+                    return work(&EngineMeasure(engine));
+                }
+            }
+        }
+        if let Ok(mut fallback) = self.fallback.try_borrow_mut() {
+            if fallback
+                .as_ref()
+                .is_none_or(|resources| resources.dpi() != dpi)
+            {
+                *fallback = Some(GdiResources::new(dpi));
+            }
+        }
+        match self.fallback.try_borrow() {
+            Ok(fallback) => match fallback.as_ref() {
+                Some(resources) => work(&GdiMeasure(resources)),
+                None => work(&GdiMeasure(&GdiResources::new(dpi))),
+            },
+            Err(_) => work(&GdiMeasure(&GdiResources::new(dpi))),
+        }
     }
 
     fn paint_with(&self, hdc: HDC, area: RECT, draw: &dyn Fn(&Painter)) {
@@ -2883,10 +3296,20 @@ impl App {
         let layout = self.layout();
         let scale = self.scale();
         let palette = self.palette.get();
+        let summary = if self.thinking() {
+            self.view
+                .try_borrow()
+                .map(|view| view.page.summary.clone())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let Ok(state) = self.model.try_borrow().map(|model| CanvasState {
             layout,
             scale,
             palette,
+            thinking: model.is_thinking(),
+            summary,
             dimension: model.dimension(),
             error: model.error_field(),
             focused: (0..3)
@@ -2908,9 +3331,12 @@ impl App {
         let text = window_text(item.hwndItem);
         let scale = self.scale();
         let palette = self.palette.get();
-        let (dimension, helper_error) = self.model.try_borrow().map_or((2, false), |model| {
-            (model.dimension(), model.helper_is_error())
-        });
+        let (dimension, helper_error, method) = self
+            .model
+            .try_borrow()
+            .map_or((2, false, Method::GaussJordan), |model| {
+                (model.dimension(), model.helper_is_error(), model.method())
+            });
         let width = item.rcItem.right - item.rcItem.left;
         let height = item.rcItem.bottom - item.rcItem.top;
         if item.CtlType == ODT_BUTTON {
@@ -2930,12 +3356,26 @@ impl App {
                 disabled: (item.itemState.0 & ODS_DISABLED.0) != 0,
                 focused: (item.itemState.0 & ODS_FOCUS.0) != 0 && !cues_hidden,
                 selected: (button == Button::Two && dimension == 2)
-                    || (button == Button::Three && dimension == 3),
+                    || (button == Button::Three && dimension == 3)
+                    || button.method() == Some(method),
             };
             self.paint_with(item.hDC, item.rcItem, &|painter| {
                 draw_button(painter, &look)
             });
         } else if item.CtlType == ODT_STATIC {
+            if let Some(Control::Step(index)) = classify(id) {
+                let items = self
+                    .view
+                    .try_borrow()
+                    .ok()
+                    .and_then(|view| view.page.steps.get(index).map(|step| step.items.clone()))
+                    .unwrap_or_default();
+                self.paint_with(item.hDC, item.rcItem, &|painter| {
+                    painter.clear(palette.surface);
+                    draw_items(painter, &items, &palette, scale);
+                });
+                return;
+            }
             let Some(label) = Label::from_id(id) else {
                 return;
             };
@@ -3090,15 +3530,171 @@ fn update_tool(tooltip: HWND, canvas: HWND, control: HWND, text: &str) {
     );
 }
 
+struct EngineMeasure<'a>(&'a Engine);
+
+impl Measure for EngineMeasure<'_> {
+    fn width(&self, text: &str, font: Font) -> i32 {
+        self.0.measure(text, font)
+    }
+
+    fn metrics(&self, font: Font) -> fonts::TextMetrics {
+        self.0.text_metrics(font)
+    }
+}
+
+struct GdiMeasure<'a>(&'a GdiResources);
+
+impl Measure for GdiMeasure<'_> {
+    fn width(&self, text: &str, font: Font) -> i32 {
+        self.0.measure(text, font)
+    }
+
+    fn metrics(&self, font: Font) -> fonts::TextMetrics {
+        self.0.text_metrics(font)
+    }
+}
+
+fn ink_color(ink: Ink, palette: &Palette) -> Color {
+    match ink {
+        Ink::Ink => palette.ink,
+        Ink::Muted => palette.muted,
+        Ink::Operation => palette.operation,
+    }
+}
+
+fn item_frame(rect: Rect, radius: f32) -> Frame {
+    Frame::new(
+        rect.x as f32,
+        rect.y as f32,
+        (rect.w - 1) as f32,
+        (rect.h - 1) as f32,
+        radius,
+    )
+}
+
+fn draw_items(painter: &Painter, items: &[Item], palette: &Palette, scale: f32) {
+    for item in items {
+        match item {
+            Item::Rule { rect } => painter.fill_rect(*rect, palette.border),
+            Item::Marked { rect } => match (palette.marked_fill, palette.marked_stroke) {
+                (Some(fill), _) => painter.rounded_box(item_frame(*rect, 7.0 * scale), fill, None),
+                (None, Some(stroke)) => {
+                    painter.rounded_outline(item_frame(*rect, 7.0 * scale), stroke, true)
+                }
+                (None, None) => {}
+            },
+            Item::Pivot { rect } => {
+                painter.rounded_outline(item_frame(*rect, 6.0 * scale), palette.pivot, false)
+            }
+            Item::Stroke { rect, muted } => {
+                painter.fill_rect(*rect, if *muted { palette.muted } else { palette.ink })
+            }
+            Item::Badge { rect, text } => {
+                painter.rounded_box(
+                    item_frame(*rect, rect.w as f32 / 2.0),
+                    palette.badge_fill,
+                    None,
+                );
+                painter.text(
+                    text,
+                    Font::Medium,
+                    palette.badge_text,
+                    *rect,
+                    Align::Center,
+                    VAlign::Center,
+                );
+            }
+            Item::Text {
+                text,
+                font,
+                ink,
+                rect,
+                centered,
+            } => painter.text(
+                text,
+                *font,
+                ink_color(*ink, palette),
+                *rect,
+                if *centered {
+                    Align::Center
+                } else {
+                    Align::Left
+                },
+                if *centered {
+                    VAlign::Center
+                } else {
+                    VAlign::Top
+                },
+            ),
+        }
+    }
+}
+
 struct CanvasState {
     layout: Layout,
     scale: f32,
     palette: Palette,
+    thinking: bool,
+    summary: Vec<Item>,
     dimension: usize,
     error: Option<(usize, usize)>,
     focused: Option<(usize, usize)>,
     empty: bool,
     values: usize,
+}
+
+fn draw_thinking(painter: &Painter, state: &CanvasState) {
+    let layout = &state.layout;
+    let palette = &state.palette;
+    painter.text(
+        model::THINK_INTRO,
+        Font::Large,
+        palette.ink,
+        layout.intro,
+        Align::Left,
+        VAlign::Top,
+    );
+    painter.text(
+        model::THINK_SUBTITLE,
+        Font::Body,
+        palette.muted,
+        layout.subtitle,
+        Align::Left,
+        VAlign::Top,
+    );
+    painter.card(
+        layout.sheet,
+        palette.surface,
+        palette.border,
+        palette.card_highlight,
+        state.scale,
+    );
+    painter.text(
+        model::METHOD_LABEL,
+        Font::Small,
+        palette.muted,
+        layout.method_label,
+        Align::Left,
+        VAlign::Center,
+    );
+    painter.icon_view(Icon::Bulb, layout.status_icon, palette.icon);
+    draw_items(painter, &state.summary, palette, state.scale);
+    painter.text(
+        model::THINK_FOOTER,
+        Font::Small,
+        palette.muted,
+        layout.footer,
+        Align::Left,
+        VAlign::Top,
+    );
+    painter.text(
+        model::THINK_SHORTCUTS,
+        Font::Small,
+        palette.muted,
+        layout.shortcut,
+        Align::Right,
+        VAlign::Top,
+    );
 }
 
 fn draw_canvas(painter: &Painter, state: &CanvasState) {
@@ -3116,6 +3712,10 @@ fn draw_canvas(painter: &Painter, state: &CanvasState) {
         Align::Left,
         VAlign::Top,
     );
+    if state.thinking {
+        draw_thinking(painter, state);
+        return;
+    }
     painter.text(
         model::INTRO,
         Font::Large,
@@ -3285,7 +3885,7 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
     let author = button == Button::Author;
     let parent = match button {
         Button::Author => palette.canvas,
-        Button::Copy => palette.solution_fill,
+        Button::Copy | Button::Think => palette.solution_fill,
         _ => palette.surface,
     };
     painter.clear(parent);

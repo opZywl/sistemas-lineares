@@ -31,12 +31,14 @@ pub enum Icon {
     Copy,
     Reset,
     Sparkles,
+    ArrowLeft,
+    Bulb,
 }
 
 pub const VIEWBOX: f32 = 24.0;
 
 impl Icon {
-    pub const ALL: [Icon; 7] = [
+    pub const ALL: [Icon; 9] = [
         Icon::Matrix,
         Icon::Grid,
         Icon::ArrowRight,
@@ -44,6 +46,8 @@ impl Icon {
         Icon::Copy,
         Icon::Reset,
         Icon::Sparkles,
+        Icon::ArrowLeft,
+        Icon::Bulb,
     ];
 
     pub const fn index(self) -> usize {
@@ -55,6 +59,8 @@ impl Icon {
             Icon::Copy => 4,
             Icon::Reset => 5,
             Icon::Sparkles => 6,
+            Icon::ArrowLeft => 7,
+            Icon::Bulb => 8,
         }
     }
 
@@ -67,6 +73,8 @@ impl Icon {
             Icon::Copy => "copy",
             Icon::Reset => "reset",
             Icon::Sparkles => "sparkles",
+            Icon::ArrowLeft => "arrow-left",
+            Icon::Bulb => "bulb",
         }
     }
 
@@ -79,6 +87,8 @@ impl Icon {
             Icon::Copy => include_str!("../../../assets/copy.svg"),
             Icon::Reset => include_str!("../../../assets/reset.svg"),
             Icon::Sparkles => include_str!("../../../assets/sparkles.svg"),
+            Icon::ArrowLeft => include_str!("../../../assets/arrow-left.svg"),
+            Icon::Bulb => include_str!("../../../assets/bulb.svg"),
         }
     }
 

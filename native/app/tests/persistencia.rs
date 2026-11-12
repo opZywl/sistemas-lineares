@@ -146,7 +146,8 @@ fn retangulo_sem_monitor_volta_ao_padrao() {
         &chave.0,
         &Saved {
             placement: Some(longe),
-            dimension: Some(2)
+            dimension: Some(2),
+            method: None
         }
     ));
     let h = janela_com(oculta(&chave));

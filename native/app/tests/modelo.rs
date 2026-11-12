@@ -1,4 +1,5 @@
 use sistemas_lineares::model::{self, Focus, Model, Outcome};
+use sistemas_lineares_core::Method;
 
 fn fill(model: &mut Model, rows: &[&[&str]]) {
     let dimension = model.dimension();
@@ -21,7 +22,9 @@ fn estado_inicial() {
     assert!(!model.helper_is_error());
     assert!(model.is_empty());
     assert!(!model.copy_enabled());
-    assert_eq!(model.copy_label(), "Copiar resultado");
+    assert!(!model.think_enabled());
+    assert!(!model.is_thinking());
+    assert_eq!(model.copy_label(), "Copiar");
     assert_eq!(model.note(), "Resultados exatos, incluindo frações.");
     assert_eq!(model.title(), None);
     assert_eq!(model.announcement(), None);
@@ -291,15 +294,15 @@ fn copiar_resultado() {
         true
     });
     assert_eq!(seen.as_deref(), Some("Solução única\r\n\r\nx = 2\r\ny = 1"));
-    assert_eq!(model.copy_label(), "Resultado copiado");
+    assert_eq!(model.copy_label(), "Copiado");
     model.solve();
-    assert_eq!(model.copy_label(), "Copiar resultado");
+    assert_eq!(model.copy_label(), "Copiar");
     model.copy(|_| false);
     assert_eq!(
         model.note(),
         "Não foi possível copiar agora. Tente novamente."
     );
-    assert_eq!(model.copy_label(), "Copiar resultado");
+    assert_eq!(model.copy_label(), "Copiar");
 }
 
 #[test]
@@ -347,7 +350,10 @@ fn textos_fixos_identicos_ao_csharp() {
     assert_eq!(model::AUTHOR_TOOLTIP, "Visitar lucas-lima.xyz");
     assert_eq!(model::AUTHOR_URL, "https://lucas-lima.xyz/");
     assert_eq!(model::INTRO, "SISTEMAS\nLINEARES.");
-    assert_eq!(model::FOOTER, "Gauss-Jordan  /  aritmética racional exata");
+    assert_eq!(
+        model::FOOTER,
+        "Gauss-Jordan · Cramer · Escalonamento  /  aritmética racional exata"
+    );
     assert_eq!(
         model::SHORTCUTS,
         "ENTER  para resolver     ·     TAB  para navegar"
@@ -403,6 +409,10 @@ fn textos_coerentes_com_a_versao_html() {
         model::NOTE_INFINITE,
         model::NOTE_NONE,
         model::COPY_LABEL,
+        model::THINK_LABEL,
+        model::BACK_LABEL,
+        model::COPY_STEPS_LABEL,
+        model::THINK_SUBTITLE,
         model::TITLE_UNIQUE,
         model::TITLE_INFINITE,
         model::TITLE_NONE,
@@ -427,5 +437,96 @@ fn textos_coerentes_com_a_versao_html() {
             app.contains(example),
             "exemplo diferente na versão HTML: {example}"
         );
+    }
+}
+
+#[test]
+fn modo_pensar_no_modelo() {
+    let mut model = Model::new();
+    assert!(!model.think_enabled());
+    assert!(!model.open_thinking(), "sem resultado não há passo a passo");
+    assert_eq!(model.method(), Method::GaussJordan);
+    model.fill_example();
+    model.solve();
+    assert!(model.think_enabled());
+    assert!(!model.is_thinking());
+    assert!(model.open_thinking());
+    assert!(model.is_thinking());
+    assert_eq!(model.thinking_status(), "Gauss-Jordan · 7 passos");
+    assert_eq!(
+        model.walkthrough().map(|passos| passos.answer.clone()),
+        Some(vec!["x = 2".to_string(), "y = 1".to_string()])
+    );
+    model.set_method(Method::Cramer);
+    assert_eq!(model.method(), Method::Cramer);
+    assert_eq!(model.thinking_status(), "Regra de Cramer · 6 passos");
+    let mut copiado = None;
+    model.copy_steps(|texto| {
+        copiado = Some(texto.to_string());
+        true
+    });
+    let texto = copiado.expect("passos copiados");
+    assert!(texto.starts_with("Modo pensar · Regra de Cramer\r\n\r\nSistema\r\n2x + y = 5\r\n"));
+    assert_eq!(texto.matches('\n').count(), texto.matches("\r\n").count());
+    assert!(texto.ends_with("Sistema possível e determinado (SPD): solução única."));
+    assert_eq!(model.steps_copy_label(), "Passos copiados");
+    model.set_method(Method::Gauss);
+    assert_eq!(model.steps_copy_label(), "Copiar passos");
+    model.copy_steps(|_| false);
+    assert_eq!(model.steps_copy_label(), "Copiar passos");
+    assert!(model.steps_copy_failed());
+    assert!(
+        model
+            .thinking_status()
+            .contains("Não foi possível copiar agora")
+    );
+    assert!(model.close_thinking());
+    assert!(!model.is_thinking());
+    assert!(!model.close_thinking());
+    assert_eq!(model.method(), Method::Gauss, "método lembrado ao voltar");
+    assert!(model.open_thinking());
+    assert_eq!(
+        model.walkthrough().map(|passos| passos.method),
+        Some(Method::Gauss)
+    );
+    model.set_input(0, 0, "4");
+    assert!(!model.is_thinking(), "editar fecha o modo pensar");
+    assert!(!model.think_enabled());
+    model.fill_example();
+    model.solve();
+    model.open_thinking();
+    model.change_dimension(3);
+    assert!(
+        !model.is_thinking(),
+        "trocar a dimensão fecha o modo pensar"
+    );
+    model.fill_example();
+    model.solve();
+    model.open_thinking();
+    model.clear();
+    assert!(!model.is_thinking(), "limpar fecha o modo pensar");
+    assert!(!model.think_enabled());
+}
+
+#[test]
+fn modo_pensar_nos_tres_tipos_de_resposta() {
+    let casos: [(&[&[&str]], &str); 3] = [
+        (&[&["2", "1", "5"], &["1", "-1", "1"]], "x = 2"),
+        (&[&["1", "1", "2"], &["2", "2", "4"]], "x = 2 \u{2212} t1"),
+        (&[&["1", "1", "2"], &["1", "1", "3"]], "Sem solução"),
+    ];
+    for (linhas, primeira) in casos {
+        let mut model = Model::new();
+        fill(&mut model, linhas);
+        assert_eq!(model.solve(), None);
+        for metodo in Method::ALL {
+            model.set_method(metodo);
+            assert!(model.open_thinking());
+            let passos = model.walkthrough().expect("passo a passo");
+            assert_eq!(passos.method, metodo);
+            assert_eq!(passos.answer[0], primeira, "{metodo:?}");
+            assert!(passos.steps.len() <= sistemas_lineares::thinking::STEP_POOL);
+            model.close_thinking();
+        }
     }
 }

@@ -85,6 +85,18 @@ fn botoes_dentro_dos_cards() {
             "{context}: copiar fora do card de resultado"
         );
         assert!(
+            layout.solution.contains(layout.think),
+            "{context}: modo pensar fora do card de resultado"
+        );
+        assert!(
+            layout.think.right() < layout.copy.x,
+            "{context}: modo pensar encosta em copiar"
+        );
+        assert!(
+            layout.example.right() + d(scale, 20) <= layout.clear.x,
+            "{context}: limpar encosta em usar exemplo"
+        );
+        assert!(
             layout.author.right() <= layout.content_w && layout.author.x >= 0,
             "{context}: autor fora do conteúdo"
         );
@@ -256,8 +268,12 @@ fn referencia_a_96_dpi() {
     assert_eq!(layout.editors[0][0], Rect::new(95, 444, 127, 21));
     assert_eq!(layout.fields[0][3], Rect::new(465, 432, 163, 46));
     assert_eq!(layout.solve, Rect::new(58, 667, 192, 42));
-    assert_eq!(layout.clear, Rect::new(541, 667, 89, 42));
-    assert_eq!(layout.copy, Rect::new(702, 667, 383, 42));
+    assert_eq!(layout.clear, Rect::new(518, 667, 112, 42));
+    assert_eq!(layout.think, Rect::new(702, 667, 186, 42));
+    assert_eq!(layout.copy, Rect::new(898, 667, 187, 42));
+    assert_eq!(layout.sheet, Rect::new(32, 238, 1079, 493));
+    assert_eq!(layout.back, Rect::new(58, 262, 118, 42));
+    assert_eq!(layout.copy_steps, Rect::new(913, 262, 172, 42));
     assert_eq!(layout.tile_values[0], Rect::new(770, 413, 295, 41));
     assert_eq!(layout.footer, Rect::new(33, 750, 470, 25));
     assert_eq!(layout.shortcut, Rect::new(658, 750, 450, 25));
@@ -291,4 +307,53 @@ fn area_rolavel_como_no_csharp() {
     assert_eq!((small.client_w, small.client_h), (607, 424));
     assert_eq!((small.content_w, small.content_h), (1040, 760));
     assert_eq!(small.max_scroll(), (1040 - 607, 760 - 424));
+}
+
+#[test]
+fn limpar_tem_folga_para_icone_e_texto() {
+    for (scale, _, _, layout) in each() {
+        let conteudo = d(scale, 22) + d(scale, 8) + d(scale, 46) + d(scale, 10);
+        assert!(
+            layout.clear.w >= conteudo + 2 * d(scale, 12),
+            "escala {scale}: limpar com {} px para {conteudo} px de conteúdo",
+            layout.clear.w
+        );
+    }
+}
+
+#[test]
+fn barra_do_modo_pensar_cabe_no_card() {
+    for (scale, size, dimension, layout) in each() {
+        let context = format!("escala {scale} tamanho {size:?} {dimension}x{dimension}");
+        let mut itens = vec![
+            ("voltar", layout.back),
+            ("metodo", layout.method_label),
+            ("copiar passos", layout.copy_steps),
+            ("icone", layout.status_icon),
+            ("status", layout.status),
+        ];
+        for (index, rect) in layout.methods.iter().enumerate() {
+            itens.push((["gauss-jordan", "cramer", "escalonamento"][index], *rect));
+        }
+        for (name, rect) in &itens {
+            assert!(
+                layout.sheet.contains(*rect),
+                "{context}: {name} {rect:?} fora do card {:?}",
+                layout.sheet
+            );
+        }
+        assert_disjoint(&context, &itens);
+        assert!(
+            layout.methods[2].right() + d(scale, 24) <= layout.copy_steps.x,
+            "{context}: métodos encostam em copiar passos"
+        );
+        assert!(layout.sheet_content.y > layout.status.bottom());
+        assert_eq!(layout.sheet_content.x, layout.back.x);
+        let alta = layout.with_sheet_bottom(layout.sheet.bottom() + 1000);
+        assert!(alta.sheet.bottom() > layout.sheet.bottom() + 1000);
+        assert_eq!(alta.footer.y, alta.sheet.bottom() + d(scale, 19));
+        assert!(alta.content_h >= alta.footer.bottom());
+        let baixa = layout.with_sheet_bottom(layout.sheet.y + 10);
+        assert_eq!(baixa.sheet, layout.sheet, "{context}: card nunca encolhe");
+    }
 }
