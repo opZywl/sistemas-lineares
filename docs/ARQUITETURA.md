@@ -44,12 +44,14 @@ A API pública é pequena e estável, e o app usa só ela:
 - **`Rational::parse`** aplica as regras de entrada: ignora espaços nas pontas, aceita vírgula ou ponto decimal, o sinal de menos tipográfico (`−`), uma fração `a/b` em que cada lado pode ter decimais e expoente, e notação científica. Os limites são 100 caracteres, contados em UTF-16 como no C#, e expoente entre -1000 e 1000. Os erros (`ParseError`) trazem as mesmas mensagens do C#.
 - **`solve`** recebe a matriz aumentada n × (n + 1), com n = 2 ou 3, e aplica Gauss-Jordan. Em cada coluna, o pivô é a primeira linha não nula a partir da linha atual; essa linha sobe, é dividida pelo pivô e zera a coluna nas demais. Como a aritmética é exata, não há pivoteamento por magnitude. Uma linha 0 = c com c ≠ 0 dá `SolutionKind::None`, pivô em todas as colunas dá `Unique` e o resto dá `Infinite`. A `Solution` guarda a matriz reduzida e as colunas de pivô.
 - **`format`** escreve a resposta exatamente como o C#, com `\r\n`: o valor de cada variável ou a forma geral com os parâmetros `t1`, `t2`, …
+- **`walkthrough`** (módulo `steps`) monta o passo a passo do Modo pensar para um método (`Method::GaussJordan`, `Method::Cramer` ou `Method::Gauss`). Cada `Step` tem título, raciocínio, linhas de conta (`LineKind::Operation`, `Calculation` ou `Result`), uma `MatrixView` opcional com o pivô, as linhas e a coluna em destaque, e as operações de linha (`RowOp`) que os testes refazem. O Gauss-Jordan segue exatamente os pivôs do `solve`; o escalonamento resolve de baixo para cima com expressões nos parâmetros; a regra de Cramer usa a diagonal no 2×2 e Sarrus no 3×3 e, com D = 0, continua por Gauss-Jordan. `Walkthrough::text` gera o texto copiado, que também é a referência de paridade com o JavaScript.
 
 ## App nativo (`native/app`)
 | Módulo | Responsabilidade |
 | --- | --- |
 | `model` | Estado da tela e transições (resolver, exemplo, limpar, copiar, trocar 2×2 e 3×3), sem Win32 e testável sem janela |
 | `layout` | Função pura que recebe a escala de DPI, a área cliente e a dimensão e devolve os retângulos de todos os elementos |
+| `thinking` | Layout do Modo pensar: quebra os textos, mede as matrizes e devolve os itens de desenho de cada passo, sem Win32 |
 | `theme` | Cores, fontes e tamanhos |
 | `gfx` | Direct2D e DirectWrite: formas, textos e ícones, sem depender de GPU |
 | `fonts` | Space Grotesk embutida, carregada da memória pelo DirectWrite e pelo GDI (`AddFontMemResourceEx`) para os campos |
@@ -80,7 +82,7 @@ A API pública é pequena e estável, e o app usa só ela:
 Argumentos desconhecidos são ignorados e o app abre normalmente.
 
 ## Versão HTML (`portable/`)
-- **`solver.js`** implementa o mesmo algoritmo com BigInt e exporta `Rational`, `solve` e `format`, que os testes em Node também usam.
+- **`solver.js`** implementa o mesmo algoritmo com BigInt e exporta `Rational`, `solve` e `format`, que os testes em Node também usam. Também exporta `METHODS`, `walkthrough` e `walkthroughText`, o porte do Modo pensar, que gera o mesmo texto do Rust.
 - **`app.js`**, **`styles.css`** e **`shell.html`** formam a interface.
 - **`tools/build-portable.cjs`** junta tudo em um único `SistemasLineares.html`: o CSS com a fonte em base64, os ícones como `<symbol>` SVG e os scripts inline. O arquivo gerado fica no git, e o workflow Lint confere que ele corresponde às fontes.
 
@@ -94,15 +96,16 @@ A versão 3 em C#/WinForms continua compilável com `legado\csharp\compilar.cmd`
 | `native/core/tests/robustez.rs` | Porte do `RobustnessTests.cs`: 76.674 sistemas e 1.703.886 verificações independentes (posto por menores, Cramer e substituição). Grava as respostas quando `SL_FIXTURES_SAIDA` está definida |
 | `native/core/tests/parser.rs` | Casos de borda e limites de comprimento e expoente iguais aos do C#. O diferencial completo roda com `SL_PARSER_CSHARP` |
 | `native/core/tests/racional.rs` | Normalização de sinal, mdc, zero, exibição e operações |
+| `native/core/tests/passos.rs` | O Modo pensar nos três métodos: em todos os 15.625 sistemas 2×2 pequenos, 39.366 sistemas 3×3 e 3.000 sistemas com frações, refaz cada operação de linha, compara cada matriz mostrada, recalcula D, Dx, Dy e Dz pela definição e confere a resposta e a verificação. Grava o texto dos passos quando `SL_PASSOS_SAIDA` está definida |
 | `native/core/tests/formato.rs` | Os 7 exemplos da APRESENTACAO.md com o texto exato e, em sistemas variados, a classificação, os pivôs, a matriz reduzida e o texto comparados ao C# |
 | `native/core/tests/paridade_*.rs` | Comparações opcionais com saídas do C#, ativadas por `SL_FIXTURES_CSHARP` e `SL_SOLVER_CSHARP` |
 | `native/app` | Transições do estado, layout em várias escalas de DPI e testes de integração com a janela real |
-| `tests/PortableTests.cjs` | As 76.674 respostas do JavaScript iguais às do Rust, a leitura dos números, IDs únicos e o HTML completo |
+| `tests/PortableTests.cjs` | As 76.674 respostas do JavaScript iguais às do Rust, o texto do Modo pensar igual ao do Rust nos três métodos, a leitura dos números, IDs únicos e o HTML completo |
 
 ### Como a paridade é verificada
-1. O `cargo test --release` roda com `SL_FIXTURES_SAIDA=tests\fixtures.tsv`, e o teste de robustez grava a resposta de cada um dos 76.674 sistemas.
+1. O `cargo test --release` roda com `SL_FIXTURES_SAIDA=tests\fixtures.tsv` e `SL_PASSOS_SAIDA=tests\passos.tsv`. O teste de robustez grava a resposta de cada um dos 76.674 sistemas, e o teste do Modo pensar grava o texto dos passos de 609 sistemas nos três métodos.
 2. O `csc.exe` compila a auditoria do C# legado, que grava `tests\fixtures-csharp.tsv` com os mesmos sistemas. O `fc /b` compara os dois arquivos byte a byte.
-3. O `node tools/build-portable.cjs` gera o HTML, e o `node tests/PortableTests.cjs tests\fixtures.tsv` confere que o JavaScript dá as mesmas respostas.
+3. O `node tools/build-portable.cjs` gera o HTML, e o `node tests/PortableTests.cjs tests\fixtures.tsv tests\passos.tsv` confere que o JavaScript dá as mesmas respostas e o mesmo passo a passo.
 4. Os arquivos temporários são apagados, e o script sai com 0 quando tudo passa ou 1 quando algo falha.
 
 Cada linha das respostas tem o formato `n|entradas|tipo|resposta em base64`, em UTF-8. O Rust e o C# geram arquivos idênticos, com 8.052.533 bytes e SHA-256 `1cc866ab0133fee62657221dac933f5a00601b69fb40d3206018272832673fea`, e o JavaScript confere cada linha desse arquivo.

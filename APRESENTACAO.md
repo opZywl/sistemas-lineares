@@ -12,6 +12,16 @@ Uma linha com todos os coeficientes zero e termo independente diferente de zero 
 
 Os números são armazenados como frações reduzidas de inteiros de precisão arbitrária: `BigInt` da crate num-bigint no app nativo em Rust e BigInt na versão HTML em JavaScript. Isso evita confundir uma diferença pequena com zero por arredondamento. Não há IA na resolução: o resultado é produzido pelas operações matemáticas descritas no código.
 
+## Modo pensar
+
+Depois de resolver, o botão **Modo pensar** abre o passo a passo da resposta. No alto da página, escolha o método:
+
+- **Gauss-Jordan:** zera a coluna de cada pivô em todas as linhas até a parte da esquerda virar a matriz identidade. Cada passo mostra a operação (por exemplo, L₂ ← L₂ − 2·L₁), a conta feita na linha e a matriz resultante.
+- **Regra de Cramer:** calcula D = det(A) e, para cada incógnita, o determinante com a coluna dela trocada pelos termos independentes. No 2×2 usa a diagonal principal menos a secundária e no 3×3 a regra de Sarrus. Quando D = 0, o método não decide entre infinitas soluções e nenhuma, e o passo a passo continua por escalonamento.
+- **Escalonamento de Gauss:** zera só o que está abaixo de cada pivô, com o multiplicador m = valor ÷ pivô, e resolve de baixo para cima por substituição.
+
+Os três métodos chegam à mesma resposta, terminam conferindo os valores nas equações originais e classificam o sistema em SPD, SPI ou SI. Em uma apresentação, resolva o exemplo 3×3 e alterne entre os três métodos para comparar os caminhos.
+
 ## Demonstrações
 
 | Caso | Equações | Resultado esperado |
@@ -28,7 +38,7 @@ Mostre também o aviso para um campo vazio ou para uma fração com denominador 
 
 ## Onde explicar no código
 
-Em native/core/src/lib.rs, `Rational::parse` interpreta os números; a estrutura `Rational` implementa as operações exatas; `solve` efetua a eliminação; e `format` escreve as respostas, inclusive com parâmetros livres. Em native/core/tests/robustez.rs, os resultados são conferidos por métodos independentes: posto por menores, regra de Cramer e substituição nas equações originais. A janela fica em native/app/src: window.rs desenha a interface e model.rs guarda o estado da tela.
+Em native/core/src/lib.rs, `Rational::parse` interpreta os números; a estrutura `Rational` implementa as operações exatas; `solve` efetua a eliminação; e `format` escreve as respostas, inclusive com parâmetros livres. Em native/core/src/steps.rs, `walkthrough` monta os passos do Modo pensar para cada método; native/core/tests/passos.rs refaz cada operação de linha, recalcula cada determinante pela definição e confere que os três métodos chegam à resposta do `solve`. Em native/core/tests/robustez.rs, os resultados são conferidos por métodos independentes: posto por menores, regra de Cramer e substituição nas equações originais. A janela fica em native/app/src: window.rs desenha a interface e model.rs guarda o estado da tela.
 
 A versão anterior, em C#, fica em legado/csharp como implementação de referência: as duas dão as mesmas respostas, byte a byte.
 

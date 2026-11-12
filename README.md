@@ -26,6 +26,8 @@ O `SistemasLineares.exe` não tem assinatura digital, então o Windows SmartScre
 ## Recursos
 - **Cálculo exato:** frações de inteiros de precisão arbitrária e eliminação de Gauss-Jordan, sem arredondamento.
 - **Resposta completa:** solução única, infinitas soluções com a forma geral em parâmetros `t1`, `t2`, … ou sistema sem solução.
+- **Modo pensar:** o passo a passo de como a resposta foi calculada, com o porquê de cada operação, todas as contas, as matrizes com o pivô em destaque e a conferência nas equações originais.
+- **Três métodos:** Gauss-Jordan, regra de Cramer (com a regra de Sarrus no 3×3) e escalonamento de Gauss com substituição de baixo para cima. O app lembra o último método escolhido.
 - **Entrada flexível:** inteiros, decimais com vírgula ou ponto, frações como `3/4` e notação científica como `1e-6`, com aviso no campo que precisa de correção.
 - **App nativo:** um único `SistemasLineares.exe` em Rust, Win32 e Direct2D/DirectWrite, com a Space Grotesk embutida. Não precisa de .NET, de navegador nem de internet.
 - **Integrado ao Windows:** DPI por monitor, alto contraste, leitor de tela, barra de título escura e janela lembrada entre aberturas.
@@ -34,6 +36,8 @@ O `SistemasLineares.exe` não tem assinatura digital, então o Windows SmartScre
 
 ## Como funciona
 O app monta a matriz aumentada [A | b] e aplica a eliminação de Gauss-Jordan. Uma linha do tipo 0 = c, com c diferente de zero, mostra que o sistema não tem solução; variáveis sem pivô viram parâmetros livres. Os números são frações de inteiros de precisão arbitrária, então uma diferença pequena nunca é confundida com zero por arredondamento.
+
+Depois de resolver, o botão **Modo pensar** mostra a mesma resposta calculada pelo método escolhido. Na regra de Cramer, quando D = 0, o app explica por que o método não decide o sistema e continua por escalonamento, em vez de concluir algo errado a partir dos determinantes.
 
 O método, com exemplos prontos para apresentar, está em [APRESENTACAO.md](APRESENTACAO.md). A organização do código está em [ARQUITETURA.md](docs/ARQUITETURA.md).
 

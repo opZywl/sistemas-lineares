@@ -6,6 +6,27 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+- **Modo pensar**
+  - Depois de resolver, o botão Modo pensar mostra como a resposta foi calculada, passo a passo, com o porquê de cada operação.
+  - Três métodos à escolha: Gauss-Jordan, regra de Cramer e escalonamento de Gauss com substituição de baixo para cima.
+  - Cada passo mostra a operação de linha, a conta feita em cada linha e a matriz resultante, com o pivô contornado e as linhas alteradas em destaque.
+  - Na regra de Cramer, os determinantes saem pela diagonal no 2×2 e pela regra de Sarrus no 3×3. Com D = 0, o app explica por que o método não decide o sistema e continua por escalonamento.
+  - O passo a passo termina conferindo a resposta nas equações originais. Com infinitas soluções, confere uma solução particular.
+  - Classificação do sistema em SPD, SPI ou SI.
+  - Botão Copiar passos, que copia o passo a passo inteiro como texto.
+  - O último método escolhido fica salvo entre aberturas.
+  - Leitores de tela leem cada passo, e o título do método é anunciado quando muda.
+- **Núcleo:** `walkthrough`, que gera os passos de cada método com aritmética exata, e testes que refazem cada operação de linha e recalculam cada determinante de forma independente em mais de 50 mil sistemas.
+- **Versão HTML:** o mesmo Modo pensar, com o texto dos passos idêntico ao do app nativo.
+
+### Alterado
+- O botão Copiar resultado virou Copiar e divide o rodapé do card de resultado com o Modo pensar.
+- O subtítulo e o rodapé citam os três métodos.
+
+### Corrigido
+- O botão Limpar ficou mais largo, e o ícone e o texto não encostam mais nas bordas.
+
 ## [4.0.0] - 2026-11-11
 
 ### Adicionado
