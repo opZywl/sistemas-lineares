@@ -5,6 +5,10 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
+pub mod steps;
+
+pub use steps::{LineKind, MathLine, MatrixView, Method, RowOp, Step, Walkthrough, walkthrough};
+
 pub const MAX_INPUT_LENGTH: usize = 100;
 pub const MAX_EXPONENT: i32 = 1000;
 
