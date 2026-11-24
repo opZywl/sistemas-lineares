@@ -100,3 +100,62 @@ jobs:
             native/target/dist/SistemasLineares.exe
             native/target/dist/SistemasLineares.html
             native/target/dist/SHA256SUMS.txt
+
+  linux:
+    name: Anexar o binário Linux
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v5
+
+      - name: Ler a toolchain fixada
+        id: toolchain
+        shell: pwsh
+        run: ./.github/scripts/toolchain.ps1
+
+      - name: Instalar o Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.canal }}
+
+      - name: Cache do Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          shared-key: linux
+
+      - name: Instalar o Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Conferir o Cargo.lock
+        working-directory: native
+        run: cargo fetch --locked
+
+      - name: Testes do núcleo, do modelo e do app Linux
+        working-directory: native
+        run: xvfb-run -a cargo test --release --locked -p sistemas-lineares-core -p sistemas-lineares-ui -p sistemas-lineares-linux
+
+      - name: Compilar o sistemas-lineares
+        working-directory: native
+        run: cargo build --release --locked -p sistemas-lineares-linux
+
+      - name: Calcular o SHA-256
+        run: |
+          mkdir -p native/target/dist
+          cp native/target/release/sistemas-lineares native/target/dist/sistemas-lineares
+          cd native/target/dist
+          sha256sum sistemas-lineares > SHA256SUMS-linux.txt
+          cat SHA256SUMS-linux.txt
+
+      - name: Anexar à release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: |
+            native/target/dist/sistemas-lineares
+            native/target/dist/SHA256SUMS-linux.txt
