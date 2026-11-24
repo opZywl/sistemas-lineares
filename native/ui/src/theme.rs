@@ -19,6 +19,16 @@ impl Color {
         self.r as u32 | (self.g as u32) << 8 | (self.b as u32) << 16
     }
 
+    pub const fn mix(self, other: Color, percent: u8) -> Color {
+        let percent = if percent > 100 { 100 } else { percent } as u32;
+        Color {
+            r: blend(self.r, other.r, percent),
+            g: blend(self.g, other.g, percent),
+            b: blend(self.b, other.b, percent),
+            a: blend(self.a, other.a, percent),
+        }
+    }
+
     pub const fn from_colorref(value: u32) -> Color {
         Color::rgb(
             (value & 0xFF) as u8,
@@ -26,6 +36,10 @@ impl Color {
             ((value >> 16) & 0xFF) as u8,
         )
     }
+}
+
+const fn blend(first: u8, second: u8, percent: u32) -> u8 {
+    ((first as u32 * percent + second as u32 * (100 - percent) + 50) / 100) as u8
 }
 
 pub const CANVAS: Color = Color::rgb(17, 16, 16);
@@ -44,8 +58,11 @@ pub const TILE_FILL: Color = Color::rgb(224, 201, 245);
 pub const TILE_STROKE: Color = Color::rgb(186, 148, 219);
 pub const DISABLED_FILL: Color = Color::rgb(42, 37, 47);
 pub const DISABLED_TEXT: Color = Color::rgb(135, 130, 143);
-pub const PRIMARY_FOCUS: Color = Color::rgb(163, 216, 191);
 pub const CARD_HIGHLIGHT: Color = Color::argb(18, 255, 255, 255);
+pub const FIELD_HOVER: Color = Color::rgb(84, 78, 90);
+pub const FOCUS_GLOW: Color = Color::argb(70, 206, 169, 243);
+
+pub const STALE_PERCENT: u8 = 70;
 
 pub const CARD_RADIUS: f32 = 16.0;
 pub const CARD_HIGHLIGHT_RADIUS: f32 = 13.0;
@@ -110,6 +127,15 @@ pub struct Palette {
     pub pivot: Color,
     pub marked_fill: Option<Color>,
     pub marked_stroke: Option<Color>,
+    pub field_hover: Color,
+    pub focus_glow: Option<Color>,
+    pub track_fill: Color,
+    pub track_stroke: Color,
+    pub keycap_fill: Color,
+    pub keycap_stroke: Color,
+    pub keycap_text: Color,
+    pub footer_link: Color,
+    pub footer_link_hover: Color,
 }
 
 impl Palette {
@@ -146,7 +172,7 @@ impl Palette {
             disabled_text: DISABLED_TEXT,
             disabled_stroke: None,
             focus: ACCENT,
-            primary_focus: PRIMARY_FOCUS,
+            primary_focus: CANVAS,
             link_face: CANVAS,
             link: INK,
             link_muted: MUTED,
@@ -157,6 +183,15 @@ impl Palette {
             pivot: ACCENT,
             marked_fill: Some(SOFT),
             marked_stroke: None,
+            field_hover: FIELD_HOVER,
+            focus_glow: Some(FOCUS_GLOW),
+            track_fill: FIELD,
+            track_stroke: BORDER,
+            keycap_fill: FIELD,
+            keycap_stroke: BORDER,
+            keycap_text: INK,
+            footer_link: INK,
+            footer_link_hover: ACCENT,
         }
     }
 
@@ -204,6 +239,25 @@ impl Palette {
             pivot: system.highlight,
             marked_fill: None,
             marked_stroke: Some(system.window_text),
+            field_hover: system.highlight,
+            focus_glow: None,
+            track_fill: system.window,
+            track_stroke: system.window_text,
+            keycap_fill: system.window,
+            keycap_stroke: system.window_text,
+            keycap_text: system.window_text,
+            footer_link: system.hot_light,
+            footer_link_hover: system.hot_light,
+        }
+    }
+}
+
+impl Palette {
+    pub const fn stale(&self, value: Color, back: Color) -> Color {
+        if self.high_contrast {
+            self.disabled_text
+        } else {
+            value.mix(back, STALE_PERCENT)
         }
     }
 }
@@ -281,6 +335,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mistura_e_esmaecimento() {
+        let branco = Color::rgb(255, 255, 255);
+        let preto = Color::rgb(0, 0, 0);
+        assert_eq!(branco.mix(preto, 100), branco);
+        assert_eq!(branco.mix(preto, 0), preto);
+        assert_eq!(branco.mix(preto, 70), Color::rgb(179, 179, 179));
+        assert_eq!(
+            Color::rgb(10, 20, 30).mix(Color::rgb(30, 40, 50), 50),
+            Color::rgb(20, 30, 40)
+        );
+        let escuro = Palette::dark();
+        assert_eq!(escuro.stale(INK, CANVAS), INK.mix(CANVAS, STALE_PERCENT));
+        let sistema = SystemColors {
+            window: Color::rgb(0, 0, 0),
+            window_text: Color::rgb(255, 255, 255),
+            button_face: Color::rgb(0, 0, 0),
+            button_text: Color::rgb(255, 255, 255),
+            highlight: Color::rgb(26, 235, 255),
+            highlight_text: Color::rgb(0, 0, 0),
+            gray_text: Color::rgb(63, 242, 63),
+            hot_light: Color::rgb(255, 255, 0),
+        };
+        let contraste = Palette::high_contrast(sistema);
+        assert_eq!(
+            contraste.stale(sistema.window_text, sistema.window),
+            sistema.gray_text
+        );
+        assert_eq!(escuro.primary_focus, CANVAS);
+    }
+
+    #[test]
     fn tamanhos_como_textrenderer() {
         assert_eq!(Font::Small.pixels(96), 12);
         assert_eq!(Font::Body.pixels(96), 14);
@@ -353,6 +438,14 @@ mod tests {
             palette.badge_fill,
             palette.badge_text,
             palette.pivot,
+            palette.field_hover,
+            palette.track_fill,
+            palette.track_stroke,
+            palette.keycap_fill,
+            palette.keycap_stroke,
+            palette.keycap_text,
+            palette.footer_link,
+            palette.footer_link_hover,
         ];
         for color in used {
             assert!(allowed.contains(&color), "{color:?}");

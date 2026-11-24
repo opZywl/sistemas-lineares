@@ -1,9 +1,8 @@
 use sistemas_lineares_core::{LineKind, MatrixView, Walkthrough};
 
-use crate::fonts::TextMetrics;
-use crate::gfx::{margins_for, wrap_lines};
 use crate::layout::{Rect, d};
 use crate::model;
+use crate::text::{TextMetrics, margins_for, wrap_lines};
 use crate::theme::Font;
 
 pub const STEP_POOL: usize = 24;

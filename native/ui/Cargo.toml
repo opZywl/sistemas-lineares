@@ -1,0 +1,10 @@
+[package]
+name = "sistemas-lineares-ui"
+description = "Estado, layout, tema e passo a passo da interface do Sistemas Lineares, sem depender do sistema operacional"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sistemas-lineares-core = { path = "../core" }

@@ -199,6 +199,11 @@ pub struct Layout {
     pub think: Rect,
     pub footer: Rect,
     pub shortcut: Rect,
+    pub preview: Rect,
+    pub size_track: Rect,
+    pub method_track: Rect,
+    pub footer_label: Rect,
+    pub method_links: [Rect; 3],
     pub sheet: Rect,
     pub back: Rect,
     pub method_label: Rect,
@@ -215,6 +220,99 @@ pub const SHEET_PADDING: i32 = 26;
 pub const FOOTER_GAP: i32 = 19;
 pub const FOOTER_ZONE: i32 = 62;
 const METHOD_WIDTHS: [i32; 3] = [132, 104, 146];
+const LINK_WIDTHS: [i32; 3] = [96, 64, 108];
+pub const TRACK_INSET: i32 = 4;
+pub const TRACK_RADIUS: f32 = 13.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Keycap {
+    pub key: Rect,
+    pub action: Rect,
+}
+
+pub fn keycaps(
+    container: Rect,
+    scale: f32,
+    items: &[(&str, &str)],
+    measure: &dyn Fn(&str) -> i32,
+) -> Vec<Keycap> {
+    let padding = d(scale, 7);
+    let height = d(scale, 20).min(container.h);
+    let inner = d(scale, 6);
+    let between = d(scale, 18);
+    let mut right = container.right();
+    let mut placed = Vec::with_capacity(items.len());
+    for (key, action) in items.iter().rev() {
+        let action_width = measure(action);
+        let action_rect = Rect::new(right - action_width, container.y, action_width, container.h);
+        right = action_rect.x - inner;
+        let key_width = measure(key) + 2 * padding;
+        let key_rect = Rect::new(
+            right - key_width,
+            container.y + (container.h - height) / 2,
+            key_width,
+            height,
+        );
+        right = key_rect.x - between;
+        placed.push(Keycap {
+            key: key_rect,
+            action: action_rect,
+        });
+    }
+    placed.reverse();
+    placed
+}
+
+pub const PREVIEW_RADIUS: f32 = 12.0;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PreviewPlan {
+    pub frame: Rect,
+    pub lines: Vec<Rect>,
+}
+
+pub fn preview_plan(area: Rect, scale: f32, count: usize, line_height: i32) -> PreviewPlan {
+    if count == 0 || area.is_empty() {
+        return PreviewPlan::default();
+    }
+    let gap = d(scale, 6);
+    let pad_y = d(scale, 14);
+    let pad_x = d(scale, 18);
+    let count = count as i32;
+    let line_height = line_height.max(1);
+    let content = count * line_height + (count - 1) * gap;
+    let height = (content + 2 * pad_y).min(area.h);
+    let frame = Rect::new(area.x, area.y + (area.h - height) / 2, area.w, height);
+    let top = frame.y + (height - content).max(0) / 2;
+    let lines = (0..count)
+        .map(|index| {
+            Rect::new(
+                frame.x + pad_x,
+                top + index * (line_height + gap),
+                (frame.w - 2 * pad_x).max(0),
+                line_height,
+            )
+        })
+        .collect();
+    PreviewPlan { frame, lines }
+}
+
+pub fn inflate(rect: Rect, amount: i32) -> Rect {
+    Rect::new(
+        rect.x - amount,
+        rect.y - amount,
+        rect.w + 2 * amount,
+        rect.h + 2 * amount,
+    )
+}
+
+pub fn union(first: Rect, second: Rect) -> Rect {
+    let x = first.x.min(second.x);
+    let y = first.y.min(second.y);
+    let right = first.right().max(second.right());
+    let bottom = first.bottom().max(second.bottom());
+    Rect::new(x, y, right - x, bottom - y)
+}
 
 pub const fn field_visible(dimension: usize, row: usize, column: usize) -> bool {
     row < dimension && (column < dimension || column == 3)
@@ -325,8 +423,16 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         ),
         footer: place(root, 33, height - 43, 470, 25),
         shortcut: place(root, width - 485, height - 43, 450, 25),
+        preview: place(solution, 26, 112, right - 52, 104),
+        footer_label: place(root, 33, height - 43, 116, 25),
         ..Layout::default()
     };
+    layout.size_track = inflate(union(layout.two, layout.three), d(scale, TRACK_INSET));
+    let mut link_x = 33 + 116;
+    for (index, link_width) in LINK_WIDTHS.into_iter().enumerate() {
+        layout.method_links[index] = place(root, link_x, height - 45, link_width, 28);
+        link_x += link_width + 4;
+    }
     let columns = dimension as i32;
     let field_width = (left - 26 - 26 - 29 - columns * 26) / (columns + 1);
     for row in 0..3 {
@@ -369,6 +475,10 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         layout.methods[index] = place(sheet, x, 24, method_width, 42);
         x += method_width + 6;
     }
+    layout.method_track = inflate(
+        union(layout.methods[0], layout.methods[2]),
+        d(scale, TRACK_INSET),
+    );
     layout.copy_steps = place(sheet, width - 64 - SHEET_PADDING - 172, 24, 172, 42);
     layout.status_icon = place(sheet, SHEET_PADDING, 94, 26, 26);
     layout.status = place(

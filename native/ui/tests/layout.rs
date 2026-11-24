@@ -1,4 +1,4 @@
-use sistemas_lineares::layout::{self, Layout, Metrics, Rect, d};
+use sistemas_lineares_ui::layout::{self, Layout, Metrics, Rect, d};
 
 const SCALES: [f32; 6] = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5];
 const SIZES: [(i32, i32); 4] = [(1040, 760), (1143, 793), (1600, 1000), (2400, 1400)];
@@ -356,4 +356,118 @@ fn barra_do_modo_pensar_cabe_no_card() {
         let baixa = layout.with_sheet_bottom(layout.sheet.y + 10);
         assert_eq!(baixa.sheet, layout.sheet, "{context}: card nunca encolhe");
     }
+}
+
+struct Contadora {
+    chamadas: std::cell::Cell<usize>,
+    caracteres: std::cell::Cell<usize>,
+}
+
+impl sistemas_lineares_ui::thinking::Measure for Contadora {
+    fn width(&self, text: &str, font: sistemas_lineares_ui::theme::Font) -> i32 {
+        self.chamadas.set(self.chamadas.get() + 1);
+        self.caracteres.set(self.caracteres.get() + text.len());
+        let largura = match font {
+            sistemas_lineares_ui::theme::Font::Title => 9,
+            sistemas_lineares_ui::theme::Font::Input => 8,
+            _ => 7,
+        };
+        text.chars().count() as i32 * largura
+    }
+
+    fn metrics(
+        &self,
+        _font: sistemas_lineares_ui::theme::Font,
+    ) -> sistemas_lineares_ui::text::TextMetrics {
+        sistemas_lineares_ui::text::TextMetrics {
+            height: 21,
+            ascent: 17,
+            descent: 4,
+            external_leading: 0,
+        }
+    }
+}
+
+#[test]
+fn modo_pensar_com_numeros_enormes_mede_pouco() {
+    use sistemas_lineares_core::{Method, Rational, walkthrough};
+    let valores = [
+        "1e1000", "-3e999", "7e998", "1", "2", "9e1000", "-1", "5e997", "1/3e1000", "4", "-7e999",
+        "2e1000",
+    ];
+    let numeros: Vec<Rational> = valores
+        .iter()
+        .map(|texto| Rational::parse(texto).expect("número"))
+        .collect();
+    let matriz: Vec<Vec<Rational>> = numeros.chunks(4).map(<[Rational]>::to_vec).collect();
+    let layout = layout::compute(1.0, 1160, 810, 3, metrics(1.0));
+    for metodo in Method::ALL {
+        let passos = walkthrough(&matriz, metodo).expect("passo a passo");
+        let contadora = Contadora {
+            chamadas: std::cell::Cell::new(0),
+            caracteres: std::cell::Cell::new(0),
+        };
+        let inicio = std::time::Instant::now();
+        let pagina =
+            sistemas_lineares_ui::thinking::page(&passos, &contadora, 1.0, layout.sheet_content);
+        let decorrido = inicio.elapsed();
+        assert!(!pagina.steps.is_empty());
+        assert!(
+            contadora.chamadas.get() < 20_000,
+            "{metodo:?}: {} medidas, {} caracteres medidos, {decorrido:?}",
+            contadora.chamadas.get(),
+            contadora.caracteres.get()
+        );
+        assert!(
+            contadora.caracteres.get() < 4_000_000,
+            "{metodo:?}: {} caracteres medidos",
+            contadora.caracteres.get()
+        );
+        println!(
+            "{metodo:?}: {} medidas, {} caracteres, {decorrido:?}",
+            contadora.chamadas.get(),
+            contadora.caracteres.get()
+        );
+    }
+}
+
+#[test]
+fn caixa_da_previa_cabe_no_card_sem_tocar_o_titulo() {
+    for (scale, size, dimension, layout) in each() {
+        let line_height = (16.0 * scale * 1.276).ceil() as i32 + 1;
+        for count in [2usize, 3] {
+            let plan = layout::preview_plan(layout.preview, scale, count, line_height);
+            let context = format!("{scale} {size:?} {dimension}x{dimension} {count} linhas");
+            assert!(
+                layout.preview.contains(plan.frame),
+                "{context}: {:?}",
+                plan.frame
+            );
+            assert!(
+                plan.frame.bottom() <= layout.empty_title.y,
+                "{context}: caixa sobre o título"
+            );
+            assert!(
+                layout.solution.contains(plan.frame),
+                "{context}: caixa fora do card"
+            );
+            assert_eq!(plan.lines.len(), count);
+            for (index, line) in plan.lines.iter().enumerate() {
+                assert!(
+                    plan.frame.contains(*line),
+                    "{context}: linha {index} fora da caixa"
+                );
+                if index > 0 {
+                    assert!(
+                        line.y >= plan.lines[index - 1].bottom(),
+                        "{context}: linhas sobrepostas"
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(
+        layout::preview_plan(Rect::new(0, 0, 100, 100), 1.0, 0, 21),
+        layout::PreviewPlan::default()
+    );
 }
