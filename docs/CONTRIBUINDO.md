@@ -8,19 +8,19 @@ Siga o [AMBIENTE.md](AMBIENTE.md). Para mudanças grandes, abra antes uma [issue
 ## Regras do código
 - **Sem comentários no código**, nem doc comments longos. Nomes claros e funções pequenas explicam o código.
 - **Textos para o usuário em PT-BR**, com acentos corretos e os mesmos caracteres das versões atuais, como `·`, `×` e `…`.
-- **As duas versões andam juntas:** o app nativo e o HTML têm os mesmos textos, as mesmas regras de entrada e as mesmas respostas.
+- **As três versões andam juntas:** os apps de Windows e de Linux usam o mesmo modelo da tela, em `native/ui`, e o HTML é um porte fiel dele. As três têm os mesmos textos, as mesmas regras de entrada, o mesmo comportamento e as mesmas respostas.
 - **Sem `unwrap` ou `expect`** onde o app pode falhar em execução. Trate o erro e mostre algo útil, nunca uma janela em branco.
-- **API estável no núcleo:** o app depende de `native/core`, então mudanças na API pública precisam de motivo forte.
+- **API estável no núcleo:** os apps dependem de `native/core` e de `native/ui`, então mudanças na API pública precisam de motivo forte.
 - **Dependências novas** só com justificativa no pull request.
-- **Formatação e Clippy:** rode `cargo fmt --all` e deixe o `cargo clippy --all-targets --locked -- -D warnings` sem avisos, ambos dentro de `native/`.
+- **Formatação e Clippy:** rode `cargo fmt --all` e deixe o `cargo clippy --all-targets --locked -- -D warnings` sem avisos, ambos dentro de `native/`. No Linux, rode também `cargo clippy -p sistemas-lineares-linux --all-targets --locked -- -D warnings`.
 
 ## Testes e paridade (obrigatórios)
-Todo pull request precisa terminar o `testar-tudo.cmd` com **OK**. O workflow Build roda o mesmo script, e o Lint confere a formatação, o Clippy e o HTML gerado.
+Todo pull request precisa terminar o `testar-tudo.cmd` com **OK**. O workflow Build roda o mesmo script no Windows e os testes do app Linux no Ubuntu, e o Lint confere a formatação, o Clippy nos dois sistemas e o HTML gerado.
 
-- **Mudou a matemática, a leitura dos números ou o texto da resposta?** Faça a mesma mudança em `native/core`, em `portable/solver.js` e em `legado/csharp/src/Solver.cs`. A paridade compara as 76.674 respostas byte a byte entre as três versões, então mudar só uma delas quebra a validação.
+- **Mudou a matemática, a leitura dos números ou o texto da resposta?** Faça a mesma mudança em `native/core`, em `portable/solver.js` e em `legado/csharp/src/Solver.cs`. A paridade compara as 76.674 respostas byte a byte entre as três implementações, então mudar só uma delas quebra a validação. A exceção são as potências e os parênteses (`native/core/src/power.rs`): o C# legado não tem essa extensão, então ela muda só no Rust e no JavaScript, conferida pelo `tests/potencias.txt` e pelo corpus diferencial. Para mudar o vetor, edite os casos em `tools/gerar-potencias.py`, que calcula as respostas com as frações do Python, e rode `python tools/gerar-potencias.py`.
 - **Mudou `portable/` ou `assets/`?** Rode `node tools/build-portable.cjs` e faça commit do `SistemasLineares.html` gerado.
-- **Comportamento novo pede teste novo:** o núcleo é testado em `native/core/tests`; o estado e o layout do app, em `native/app`.
-- **Mudança visual:** anexe ao pull request capturas de antes e depois.
+- **Mudou o comportamento ou um texto da tela?** Mude `native/ui/src/model.rs` e porte para `portable/app.js`. O teste `textos_coerentes_com_a_versao_html` confere os textos.
+- **Mudança visual:** anexe ao pull request capturas de antes e depois. Os exemplos `capturas` dos apps de Windows e de Linux geram todos os estados, como explicado no [BUILD.md](../BUILD.md#capturas-e-demonstração).
 
 ## Mensagens de commit
 O projeto usa [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/) em PT-BR, com o escopo entre parênteses depois dos dois-pontos:
@@ -29,7 +29,7 @@ O projeto usa [Conventional Commits](https://www.conventionalcommits.org/pt-br/v
 <tipo>: (<escopo>) <descrição>
 ```
 
-Os tipos são `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci` e `chore`. Os escopos mais comuns são `core`, `app`, `html`, `legado`, `docs`, `ci` e `repo`.
+Os tipos são `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci` e `chore`. Os escopos mais comuns são `core`, `ui`, `app`, `linux`, `html`, `legado`, `docs`, `ci` e `repo`.
 
 ```
 feat: (app) lembra a dimensão 2×2 ou 3×3 entre aberturas
@@ -52,7 +52,7 @@ docs: (readme) explica como conferir o SHA-256
 1. Atualize a versão em `native/Cargo.toml`, na seção `[workspace.package]`; em `native/app/app.rc`, em `FILEVERSION`, `PRODUCTVERSION` e nos textos `FileVersion` e `ProductVersion`; e no `assemblyIdentity` de `native/app/app.manifest`.
 2. No CHANGELOG, troque **[Não lançado]** por `[X.Y.Z] - AAAA-MM-DD`, abra uma nova seção **[Não lançado]** vazia acima dela e atualize os links do fim do arquivo.
 3. Faça o commit, crie a tag e envie: `git tag vX.Y.Z` e `git push origin vX.Y.Z`.
-4. O workflow Release confere se a tag bate com o `Cargo.toml`, o `app.rc`, o `app.manifest` e o CHANGELOG, roda a validação completa, compila e publica a release com o exe, o HTML, o `SHA256SUMS.txt` e as notas tiradas do CHANGELOG.
+4. O workflow Release confere se a tag bate com o `Cargo.toml`, o `app.rc`, o `app.manifest` e o CHANGELOG, roda a validação completa, compila e publica a release com o exe, o HTML, o `SHA256SUMS.txt` e as notas tiradas do CHANGELOG. Em seguida, testa e compila o app Linux no Ubuntu e anexa o `sistemas-lineares` e o `SHA256SUMS-linux.txt` à mesma release.
 
 ## Dúvidas
 Abra uma [issue](https://github.com/opZywl/sistemas-lineares/issues) com a sua pergunta ou veja a [arquitetura](ARQUITETURA.md) do projeto.

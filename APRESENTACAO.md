@@ -10,7 +10,13 @@ O programa monta a matriz aumentada [A | b] e aplica eliminação de Gauss-Jorda
 
 Uma linha com todos os coeficientes zero e termo independente diferente de zero representa uma contradição, como 0 = 1: o sistema não tem solução. Quando todas as variáveis têm pivô, a solução é única. Se não houver contradição e restarem variáveis sem pivô, elas se tornam parâmetros livres, e o sistema tem infinitas soluções.
 
-Os números são armazenados como frações reduzidas de inteiros de precisão arbitrária: `BigInt` da crate num-bigint no app nativo em Rust e BigInt na versão HTML em JavaScript. Isso evita confundir uma diferença pequena com zero por arredondamento. Não há IA na resolução: o resultado é produzido pelas operações matemáticas descritas no código.
+Os números são armazenados como frações reduzidas de inteiros de precisão arbitrária: `BigInt` da crate num-bigint nos apps nativos em Rust e BigInt na versão HTML em JavaScript. Isso evita confundir uma diferença pequena com zero por arredondamento. Não há IA na resolução: o resultado é produzido pelas operações matemáticas descritas no código.
+
+## Entrada e resposta automática
+
+Cada campo aceita inteiros, decimais, frações, notação científica e potências, como `2^3`, `10^-2`, `(1/2)^3` e `10²`. A potência vale antes do sinal, como na matemática: `-2²` é −4 e `(-2)²` é 4. Com o campo focado, a dica abaixo dos campos mostra o valor lido, por exemplo "Este campo vale 8.".
+
+Não é preciso clicar em Resolver: a resposta aparece assim que o último campo é preenchido. Enquanto se digita, o card mostra quantos campos faltam e a prévia das equações, com `?` no lugar do que falta. Enter leva ao próximo campo vazio, e as setas para cima e para baixo mudam de equação.
 
 ## Modo pensar
 
@@ -20,7 +26,7 @@ Depois de resolver, o botão **Modo pensar** abre o passo a passo da resposta. N
 - **Regra de Cramer:** calcula D = det(A) e, para cada incógnita, o determinante com a coluna dela trocada pelos termos independentes. No 2×2 usa a diagonal principal menos a secundária e no 3×3 a regra de Sarrus. Quando D = 0, o método não decide entre infinitas soluções e nenhuma, e o passo a passo continua por escalonamento.
 - **Escalonamento de Gauss:** zera só o que está abaixo de cada pivô, com o multiplicador m = valor ÷ pivô, e resolve de baixo para cima por substituição.
 
-Os três métodos chegam à mesma resposta, terminam conferindo os valores nas equações originais e classificam o sistema em SPD, SPI ou SI. Em uma apresentação, resolva o exemplo 3×3 e alterne entre os três métodos para comparar os caminhos.
+Os três métodos chegam à mesma resposta, terminam conferindo os valores nas equações originais e classificam o sistema em SPD, SPI ou SI. Os links do rodapé, **Gauss-Jordan**, **Cramer** e **Escalonamento**, abrem o Modo pensar direto no método. Em uma apresentação, resolva o exemplo 3×3 e alterne entre os três métodos para comparar os caminhos.
 
 ## Demonstrações
 
@@ -33,13 +39,18 @@ Os três métodos chegam à mesma resposta, terminam conferindo os valores nas e
 | Troca de linhas | 0x + y = 2; x + 0y = 3 | x = 3; y = 2 |
 | Fração exata | 3x + 0y = 1; 0x + 2y = 1 | x = 1/3; y = 1/2 |
 | Todas livres | 0x + 0y = 0; 0x + 0y = 0 | x = t1; y = t2 |
+| Com potências | 2³x + y = 9, digitada como `2^3`, `1` e `9`; x − y = 0 | x = 1; y = 1 |
 
-Mostre também o aviso para um campo vazio ou para uma fração com denominador zero. O programa solicita a correção do campo antes de calcular.
+Mostre também como o app ajuda a corrigir a entrada:
+
+- Com campos vazios, o card mostra "Faltam N campos" e a prévia das equações. **Resolver sistema** aponta o primeiro campo vazio.
+- Digite `1/0` num campo e saia dele: o campo fica vermelho e a dica diz "O denominador não pode ser zero.". O mesmo aviso aparece se você pressionar Enter no campo ou parar de digitar por um instante.
+- Digite `2^3` num campo: a dica mostra "Este campo vale 8.".
 
 ## Onde explicar no código
 
-Em native/core/src/lib.rs, `Rational::parse` interpreta os números; a estrutura `Rational` implementa as operações exatas; `solve` efetua a eliminação; e `format` escreve as respostas, inclusive com parâmetros livres. Em native/core/src/steps.rs, `walkthrough` monta os passos do Modo pensar para cada método; native/core/tests/passos.rs refaz cada operação de linha, recalcula cada determinante pela definição e confere que os três métodos chegam à resposta do `solve`. Em native/core/tests/robustez.rs, os resultados são conferidos por métodos independentes: posto por menores, regra de Cramer e substituição nas equações originais. A janela fica em native/app/src: window.rs desenha a interface e model.rs guarda o estado da tela.
+Em native/core/src/lib.rs, `Rational::parse` interpreta os números, e native/core/src/power.rs lê as potências e os parênteses; a estrutura `Rational` implementa as operações exatas; `solve` efetua a eliminação; e `format` escreve as respostas, inclusive com parâmetros livres. Em native/core/src/steps.rs, `walkthrough` monta os passos do Modo pensar para cada método; native/core/tests/passos.rs refaz cada operação de linha, recalcula cada determinante pela definição e confere que os três métodos chegam à resposta do `solve`. Em native/core/tests/robustez.rs, os resultados são conferidos por métodos independentes: posto por menores, regra de Cramer e substituição nas equações originais. O estado da tela, com a resposta automática e os avisos, fica em native/ui/src/model.rs e é o mesmo nos apps de Windows e de Linux. A janela do Windows fica em native/app/src/window.rs, e a do Linux em native/linux/src/app.rs.
 
 A versão anterior, em C#, fica em legado/csharp como implementação de referência: as duas dão as mesmas respostas, byte a byte.
 
-Antes da apresentação, abra a versão escolhida no computador que será utilizado e execute os exemplos acima. Leve o SistemasLineares.exe, baixado da página de Releases, e o SistemasLineares.html offline. O exe é um arquivo único e não precisa de instalação. Consulte o README para os requisitos de execução e formatos de entrada.
+Antes da apresentação, abra a versão escolhida no computador que será utilizado e execute os exemplos acima. Leve o SistemasLineares.exe (Windows) ou o sistemas-lineares (Linux), baixados da página de Releases, e o SistemasLineares.html offline. Os apps são arquivos únicos e não precisam de instalação. Consulte o README para os requisitos de execução e formatos de entrada.
