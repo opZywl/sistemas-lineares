@@ -1,0 +1,42 @@
+[package]
+name = "sistemas-lineares-linux"
+description = "Sistemas Lineares - aplicativo nativo para Linux"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "sistemas_lineares_linux"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sistemas-lineares"
+path = "src/main.rs"
+
+[[example]]
+name = "capturas"
+path = "examples/capturas.rs"
+
+[dependencies]
+sistemas-lineares-core = { path = "../core" }
+sistemas-lineares-ui = { path = "../ui" }
+webbrowser = "1.2.7"
+
+[dependencies.eframe]
+version = "0.37"
+default-features = false
+features = [
+    "accesskit",
+    "clipboard",
+    "default_fonts",
+    "glow",
+    "links",
+    "persistence",
+    "wayland",
+    "x11",
+]
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["eframe"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
