@@ -10,6 +10,7 @@ set "NORMAL=%ESC%[0m"
 set "CARGO_TOML=%~dp0native\Cargo.toml"
 set "FIXTURES=%~dp0tests\fixtures.tsv"
 set "PASSOS=%~dp0tests\passos.tsv"
+set "POTENCIAS=%~dp0tests\potencias-corpus.tsv"
 set "FIXTURES_CSHARP=%~dp0tests\fixtures-csharp.tsv"
 set "AUDITORIA_CSHARP=%~dp0tests\RobustnessTests.exe"
 set "ESPERAR=1"
@@ -17,20 +18,23 @@ if /i "%~1"=="--no-pause" set "ESPERAR="
 call :limpar
 
 echo.
-echo [1/3] Rust: nucleo, auditoria independente e interface nativa...
+echo [1/4] Rust: nucleo, auditoria independente e interface nativa...
 where cargo >nul 2>nul
 if errorlevel 1 goto semrust
 set "SL_FIXTURES_SAIDA=%FIXTURES%"
 set "SL_PASSOS_SAIDA=%PASSOS%"
+set "SL_POTENCIAS_SAIDA=%POTENCIAS%"
 cargo test --release --no-fail-fast --manifest-path "%CARGO_TOML%" -- --nocapture
 if errorlevel 1 goto falharust
 set "SL_FIXTURES_SAIDA="
 set "SL_PASSOS_SAIDA="
+set "SL_POTENCIAS_SAIDA="
 if not exist "%FIXTURES%" goto semfixtures
 if not exist "%PASSOS%" goto sempassos
+if not exist "%POTENCIAS%" goto sempotencias
 
 echo.
-echo [2/3] Paridade com a versao C# de referencia (legado\csharp)...
+echo [2/4] Paridade com a versao C# de referencia (legado\csharp)...
 set "CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if not exist "%CSC%" set "CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 if not exist "%CSC%" goto semcsharp
@@ -47,13 +51,23 @@ echo %AMARELO% AVISO %NORMAL% Compilador do .NET Framework nao encontrado: parid
 
 :javascript
 echo.
-echo [3/3] Versao HTML (JavaScript) e passo a passo do Modo pensar...
+echo [3/4] Versao HTML (JavaScript): respostas, potencias, modelo da tela e Modo pensar...
 where node >nul 2>nul
 if errorlevel 1 goto semnode
 node "%~dp0tools\build-portable.cjs"
 if errorlevel 1 goto falhajs
-node "%~dp0tests\PortableTests.cjs" "%FIXTURES%" "%PASSOS%"
+node "%~dp0tests\PortableTests.cjs" "%FIXTURES%" "%PASSOS%" "%POTENCIAS%"
 if errorlevel 1 goto falhajs
+
+echo.
+echo [4/4] Interface HTML no Google Chrome, sem janela...
+node "%~dp0tests\InterfaceHtml.cjs"
+if errorlevel 3 goto semchrome
+if errorlevel 1 goto falhainterface
+goto concluido
+:semchrome
+if defined CI goto faltachrome
+echo %AMARELO% AVISO %NORMAL% Google Chrome nao encontrado: interface HTML nao testada.
 goto concluido
 :semnode
 echo %AMARELO% AVISO %NORMAL% Node.js nao encontrado: versao HTML nao reconstruida nem testada.
@@ -77,6 +91,9 @@ goto falha
 :sempassos
 set "MSG=Os testes do Rust nao geraram o arquivo de passos do Modo pensar (tests\passos.tsv)."
 goto falha
+:sempotencias
+set "MSG=Os testes do Rust nao geraram o corpus de potencias (tests\potencias-corpus.tsv)."
+goto falha
 :falhacsharp
 set "MSG=Nao foi possivel rodar a auditoria da versao C# de referencia."
 goto falha
@@ -89,6 +106,12 @@ exit /b 1
 :falhajs
 set "MSG=A versao HTML falhou na validacao (veja acima)."
 goto falha
+:falhainterface
+set "MSG=A interface HTML falhou no Google Chrome (veja acima)."
+goto falha
+:faltachrome
+set "MSG=Google Chrome nao encontrado: na integracao continua a interface HTML precisa ser testada."
+goto falha
 
 :falha
 call :limpar
@@ -100,6 +123,7 @@ exit /b 1
 :limpar
 if exist "%FIXTURES%" del "%FIXTURES%"
 if exist "%PASSOS%" del "%PASSOS%"
+if exist "%POTENCIAS%" del "%POTENCIAS%"
 if exist "%FIXTURES_CSHARP%" del "%FIXTURES_CSHARP%"
 if exist "%AUDITORIA_CSHARP%" del "%AUDITORIA_CSHARP%"
 exit /b 0

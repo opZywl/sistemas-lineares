@@ -2,6 +2,49 @@
   'use strict';
   const abs = x => x < 0n ? -x : x;
   function gcd(a,b) { a=abs(a); b=abs(b); while(b) [a,b]=[b,a%b]; return a; }
+  const MAX_INPUT_LENGTH=100,MAX_EXPONENT=1000,MAX_POWER_DIGITS=300,LIVE_BUDGET_BITS=8000,PREVIEW_DIGIT_LIMIT=12;
+  const POWER_LIMIT_BITS=Math.ceil(MAX_POWER_DIGITS*Math.log2(10));
+  const PARSE_MESSAGES=Object.freeze({
+    Empty:'Preencha todos os campos.',
+    TooLong:'Use números com no máximo 100 caracteres.',
+    Invalid:'Número inválido.',
+    Exponent:'Use um expoente inteiro entre -1000 e 1000.',
+    ZeroDenominator:'O denominador não pode ser zero.',
+    PowerExponent:'Use um expoente inteiro de -1000 a 1000, como 2^3 ou 10^-2.',
+    PowerChain:'Use parênteses para potência de potência, como (2^3)^2.',
+    PowerTooLarge:'Use números menores: com potências, o limite é de 300 algarismos.',
+    ZeroToZero:'0 elevado a 0 é indeterminado.',
+    ZeroNegativePower:'0 não pode ser elevado a expoente negativo.',
+    Parenthesis:'Confira os parênteses.',
+    Product:'Faça a multiplicação antes: para 1,5×10³, digite 1,5e3 ou 1500.'
+  });
+  class ParseError extends Error {
+    constructor(kind) { super(PARSE_MESSAGES[kind]); this.name='ParseError'; this.kind=kind; }
+  }
+  const PARSE_ERRORS=Object.freeze(Object.fromEntries(Object.keys(PARSE_MESSAGES).map(kind=>[kind,Object.freeze(new ParseError(kind))])));
+  const fail=kind=>{ throw PARSE_ERRORS[kind]; };
+  const WHITESPACE=new Set([0x9,0xA,0xB,0xC,0xD,0x20,0x85,0xA0,0x1680,0x2000,0x2001,0x2002,0x2003,0x2004,0x2005,0x2006,0x2007,0x2008,0x2009,0x200A,0x2028,0x2029,0x202F,0x205F,0x3000]);
+  const isWhitespace=character=>character!==undefined&&WHITESPACE.has(character.codePointAt(0));
+  function trim(text) {
+    let start=0,end=text.length;
+    while(start<end&&WHITESPACE.has(text.charCodeAt(start))) start++;
+    while(end>start&&WHITESPACE.has(text.charCodeAt(end-1))) end--;
+    return text.slice(start,end);
+  }
+  const normalize=input=>trim(String(input??'')).replaceAll(',','.').replaceAll('−','-');
+  const isAsciiDigit=character=>character!==undefined&&character.length===1&&character>='0'&&character<='9';
+  const ALPHANUMERIC=/^[\p{Alphabetic}\p{N}]$/u;
+  const isAlphanumeric=character=>character!==undefined&&ALPHANUMERIC.test(character);
+  const SUPERSCRIPT_DIGITS=['⁰','¹','²','³','⁴','⁵','⁶','⁷','⁸','⁹'];
+  const SUPERSCRIPT_PLUS='⁺',SUPERSCRIPT_MINUS='⁻',PRODUCT_SIGNS=['×','·','⋅'];
+  const superscriptDigit=character=>SUPERSCRIPT_DIGITS.indexOf(character);
+  const isSuperscript=character=>character!==undefined&&(superscriptDigit(character)>=0||character===SUPERSCRIPT_PLUS||character===SUPERSCRIPT_MINUS);
+  function bitLength(value) {
+    if(value<0n) value=-value;
+    if(value===0n) return 0;
+    const hex=value.toString(16);
+    return (hex.length-1)*4+32-Math.clz32(parseInt(hex[0],16));
+  }
   class Rational {
     constructor(n=0n,d=1n) {
       if(d===0n) throw new Error('O denominador não pode ser zero.');
@@ -16,24 +59,210 @@
     eq(b) { return this.n===b.n && this.d===b.d; }
     get zero() { return this.n===0n; }
     toString() { return this.d===1n?String(this.n):`${this.n}/${this.d}`; }
-    static parse(value) {
-      const s=String(value??'').trim().replaceAll(',','.').replaceAll('−','-');
-      if(!s) throw new Error('Preencha todos os campos.');
-      if(s.length>100) throw new Error('Use números com no máximo 100 caracteres.');
-      const parts=s.split('/');
-      if(parts.length>2) throw new Error('Número inválido.');
-      const decimal=text=>{
-        const match=/^([+-]?)(\d+(?:\.\d*)?|\.\d+)(?:[eE]([+-]?\d+))?$/.exec(text.trim());
-        if(!match) throw new Error('Número inválido.');
-        const exponent=Number(match[3]||0);
-        if(!Number.isInteger(exponent)||Math.abs(exponent)>1000) throw new Error('Use um expoente inteiro entre -1000 e 1000.');
-        const [whole,frac='']=match[2].split('.');
-        let n=BigInt((whole||'0')+frac)*(match[1]==='-'?-1n:1n), power=frac.length-exponent;
-        return power>=0?new Rational(n,10n**BigInt(power)):new Rational(n*10n**BigInt(-power));
-      };
-      const a=decimal(parts[0]); return parts.length===1?a:a.div(decimal(parts[1]));
+    static parse(input) {
+      const text=normalize(input);
+      if(!text) fail('Empty');
+      if(text.length>MAX_INPUT_LENGTH) fail('TooLong');
+      if(usesExtension(text)) return new PowerParser(text).value();
+      const parts=text.split('/');
+      if(parts.length>2) fail('Invalid');
+      const value=parseDecimal(parts[0]);
+      if(parts.length===1) return value;
+      const divisor=parseDecimal(parts[1]);
+      if(divisor.zero) fail('ZeroDenominator');
+      return value.div(divisor);
     }
   }
+  function parseDecimal(input) {
+    let text=trim(input);
+    if(!text) fail('Invalid');
+    let exponent=0;
+    const position=text.search(/[eE]/);
+    if(position>=0) {
+      const parsed=parseExponent(text.slice(position+1));
+      if(parsed===null) fail('Exponent');
+      exponent=parsed;
+      text=text.slice(0,position);
+      if(!text) fail('Invalid');
+    }
+    const negative=text[0]==='-',body=text[0]==='-'||text[0]==='+'?text.slice(1):text;
+    let digits='',dot=false,decimals=0;
+    for(const character of body) {
+      if(character==='.'&&!dot) { dot=true; continue; }
+      if(!isAsciiDigit(character)) fail('Invalid');
+      digits+=character;
+      if(dot) decimals++;
+    }
+    if(!digits) fail('Invalid');
+    const numerator=negative?-BigInt(digits):BigInt(digits),power=decimals-exponent;
+    return power>=0?new Rational(numerator,10n**BigInt(power)):new Rational(numerator*10n**BigInt(-power));
+  }
+  function parseExponent(text) {
+    const negative=text[0]==='-';
+    const digits=(negative||text[0]==='+'?text.slice(1):text).replace(/\0+$/,'');
+    if(!digits||!/^[0-9]+$/.test(digits)) return null;
+    const significant=digits.replace(/^0+/,'');
+    if(significant.length>4) return null;
+    const value=significant?Number(significant):0;
+    if(value>MAX_EXPONENT) return null;
+    return negative?-value:value;
+  }
+  const usesExtension=text=>Array.from(text).some(character=>character==='^'||character==='('||character===')'||character==='*'||PRODUCT_SIGNS.includes(character)||isSuperscript(character));
+  function bounded(digits,negative) {
+    const significant=digits.replace(/^0+/,'');
+    if(significant.length>4) fail('PowerExponent');
+    const value=significant?Number(significant):0;
+    if(value>MAX_EXPONENT) fail('PowerExponent');
+    return negative?-value:value;
+  }
+  let powerLimit=null;
+  const tooLarge=value=>abs(value)>=(powerLimit??=10n**BigInt(MAX_POWER_DIGITS));
+  function capped(value,powered) {
+    if(powered&&(tooLarge(value.n)||tooLarge(value.d))) fail('PowerTooLarge');
+    return [value,powered];
+  }
+  function raise(base,exponent) {
+    if(Math.abs(exponent)>MAX_EXPONENT) fail('PowerExponent');
+    if(base.zero) {
+      if(exponent===0) fail('ZeroToZero');
+      if(exponent<0) fail('ZeroNegativePower');
+      return new Rational(0n);
+    }
+    if(exponent===0) return new Rational(1n);
+    const power=Math.abs(exponent),widest=Math.max(bitLength(base.n),bitLength(base.d));
+    if(Math.max(widest-1,0)*power>POWER_LIMIT_BITS) fail('PowerTooLarge');
+    const numerator=base.n**BigInt(power),denominator=base.d**BigInt(power);
+    if(tooLarge(numerator)||tooLarge(denominator)) fail('PowerTooLarge');
+    return exponent>0?new Rational(numerator,denominator):new Rational(denominator,numerator);
+  }
+  class PowerParser {
+    constructor(text) { this.characters=Array.from(text); this.position=0; this.depth=0; }
+    peek() { return this.characters[this.position]; }
+    peekAt(offset) { return this.characters[this.position+offset]; }
+    skipSpaces() { while(isWhitespace(this.peek())) this.position++; }
+    atPower() {
+      const character=this.peek();
+      if(character==='^') return true;
+      if(character==='*') return this.peekAt(1)==='*';
+      return isSuperscript(character);
+    }
+    atProduct() {
+      const character=this.peek();
+      if(character==='*') return this.peekAt(1)!=='*';
+      return character!==undefined&&PRODUCT_SIGNS.includes(character);
+    }
+    value() {
+      const [value]=this.quotient();
+      this.skipSpaces();
+      const character=this.peek();
+      if(character===undefined) return value;
+      return fail(character===')'?'Parenthesis':'Invalid');
+    }
+    quotient() {
+      const [numerator,poweredNumerator]=this.signed();
+      this.skipSpaces();
+      if(this.peek()!=='/') return [numerator,poweredNumerator];
+      this.position++;
+      const [denominator,poweredDenominator]=this.signed();
+      this.skipSpaces();
+      if(this.peek()==='/') fail('Invalid');
+      if(denominator.zero) fail('ZeroDenominator');
+      return capped(numerator.div(denominator),poweredNumerator||poweredDenominator);
+    }
+    signed() {
+      this.skipSpaces();
+      const sign=this.peek();
+      if(sign!=='-'&&sign!=='+') return this.power();
+      this.position++;
+      const next=this.peek();
+      if(!(isAsciiDigit(next)||next==='.'||next==='(')) fail(this.missingOperand());
+      const [value,powered]=this.power();
+      return [sign==='-'?value.neg():value,powered];
+    }
+    missingOperand() { return (this.peek()===undefined&&this.depth>0)||this.peek()===')'?'Parenthesis':'Invalid'; }
+    power() {
+      const [base,powered]=this.atom();
+      this.skipSpaces();
+      if(!this.atPower()) {
+        if(this.atProduct()) fail('Product');
+        return [base,powered];
+      }
+      const exponent=this.exponent();
+      this.skipSpaces();
+      if(this.atPower()) fail('PowerChain');
+      const value=raise(base,exponent);
+      if(this.atProduct()) fail('Product');
+      return [value,true];
+    }
+    atom() {
+      this.skipSpaces();
+      const character=this.peek();
+      if(character==='(') {
+        this.position++;
+        this.depth++;
+        const parsed=this.quotient();
+        this.skipSpaces();
+        if(this.peek()!==')') fail(this.peek()===undefined?'Parenthesis':'Invalid');
+        this.position++;
+        this.depth--;
+        return parsed;
+      }
+      if(isAsciiDigit(character)||character==='.') return [this.number(),false];
+      return fail(this.missingOperand());
+    }
+    number() {
+      const start=this.position;
+      while(isAsciiDigit(this.peek())||this.peek()==='.') this.position++;
+      if(this.peek()==='e'||this.peek()==='E') {
+        this.position++;
+        if(this.peek()==='+'||this.peek()==='-') this.position++;
+        while(isAsciiDigit(this.peek())) this.position++;
+      }
+      return parseDecimal(this.characters.slice(start,this.position).join(''));
+    }
+    exponent() {
+      const character=this.peek();
+      if(character==='^') this.position+=1;
+      else if(character==='*') this.position+=2;
+      else return this.superscript();
+      this.skipSpaces();
+      if(this.peek()!=='(') return this.integer();
+      this.position++;
+      this.skipSpaces();
+      const value=this.integer();
+      this.skipSpaces();
+      const close=this.peek();
+      if(close===undefined) fail('Parenthesis');
+      if(close!==')') fail('PowerExponent');
+      this.position++;
+      return value;
+    }
+    integer() {
+      const sign=this.peek();
+      if(sign==='-'||sign==='+') this.position++;
+      const start=this.position;
+      while(isAsciiDigit(this.peek())) this.position++;
+      const next=this.peek();
+      if(this.position===start||next==='.'||next==='e'||next==='E'||(isAlphanumeric(next)&&!isSuperscript(next))) fail('PowerExponent');
+      return bounded(this.characters.slice(start,this.position).join(''),sign==='-');
+    }
+    superscript() {
+      const sign=this.peek();
+      if(sign===SUPERSCRIPT_MINUS||sign===SUPERSCRIPT_PLUS) this.position++;
+      let digits='';
+      for(let digit=superscriptDigit(this.peek());digit>=0;digit=superscriptDigit(this.peek())) { digits+=String(digit); this.position++; }
+      if(!digits||isSuperscript(this.peek())) fail('PowerExponent');
+      return bounded(digits,sign===SUPERSCRIPT_MINUS);
+    }
+  }
+  function looksIncomplete(input) {
+    const characters=Array.from(normalize(input));
+    if(!characters.length) return false;
+    const last=characters[characters.length-1];
+    const open=characters.filter(character=>character==='(').length,close=characters.filter(character=>character===')').length;
+    return open>close||['+','-','/','^','*','(','e','E','.',SUPERSCRIPT_PLUS,SUPERSCRIPT_MINUS].includes(last);
+  }
+  const withinLiveBudget=matrix=>matrix.flat().reduce((bits,value)=>bits+bitLength(value.n)+bitLength(value.d),0)<=LIVE_BUDGET_BITS;
   function solve(input) {
     const n=input.length;
     if((n!==2&&n!==3)||input.some(row=>row.length!==n+1)) throw new Error('O sistema deve ser 2×2 ou 3×3.');
@@ -107,6 +336,35 @@
     return text||'0';
   }
   const equation=row=>`${leftSide(row.slice(0,-1))} = ${number(row[row.length-1])}`;
+  const Entry=Object.freeze({Missing:Object.freeze({kind:'missing'}),Invalid:Object.freeze({kind:'invalid'}),value:value=>({kind:'value',value})});
+  const abbreviateDigits=digits=>digits.length<=PREVIEW_DIGIT_LIMIT?digits:`${digits.slice(0,4)}…${digits.slice(-4)}`;
+  function abbreviate(text) {
+    let output='',digits='';
+    for(const character of text) {
+      if(isAsciiDigit(character)) { digits+=character; continue; }
+      output+=abbreviateDigits(digits)+character;
+      digits='';
+    }
+    return output+abbreviateDigits(digits);
+  }
+  function previewTerm(coefficient,column,text) {
+    if(coefficient.zero) return text;
+    const negative=isNegative(coefficient),size=magnitude(coefficient);
+    if(!text) { if(negative) text+=MINUS; }
+    else text+=negative?' − ':' + ';
+    if(!isOne(size)) { const shown=abbreviate(String(size)); text+=isInteger(size)?shown:`(${shown})`; }
+    return text+VARIABLES[column];
+  }
+  function previewEquation(row) {
+    if(!row.length) return '';
+    const constant=row[row.length-1];
+    let text='';
+    row.slice(0,-1).forEach((entry,column)=>{
+      if(entry.kind==='value') text=previewTerm(entry.value,column,text);
+      else text+=`${text?' + ':''}?${VARIABLES[column]}`;
+    });
+    return `${text||'0'} = ${constant.kind==='value'?abbreviate(number(constant.value)):'?'}`;
+  }
   const vector=row=>`(${row.slice(0,-1).map(number).join(', ')} | ${number(row[row.length-1])})`;
   const signedSum=values=>values.map((value,index)=>index===0?number(value):isNegative(value)?` − ${number(value.neg())}`:` + ${number(value)}`).join('');
   function operationText(target,source,value) {
@@ -490,7 +748,9 @@
     for(const text of walk.answer) out+=text+'\n';
     return out+walk.classification;
   }
-  const api={Rational,solve,format,METHODS,walkthrough,walkthroughText,matrixLines,matrixCells};
+  const api={Rational,ParseError,PARSE_MESSAGES,solve,format,METHODS,walkthrough,walkthroughText,matrixLines,matrixCells,
+    VARIABLES,MAX_INPUT_LENGTH,MAX_EXPONENT,MAX_POWER_DIGITS,LIVE_BUDGET_BITS,PREVIEW_DIGIT_LIMIT,
+    trim,isWhitespace,usesExtension,raise,looksIncomplete,withinLiveBudget,Entry,abbreviate,previewEquation,equation};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   else root.LinearSolver=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
