@@ -5,12 +5,46 @@ use std::path::{Path, PathBuf};
 
 use comum::{click, snap, write};
 use sistemas_lineares::{Button, Handles, Launch, Renderer, create, diagnostics, pump};
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, GetClientRect, GetWindowRect, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
-    SetWindowPos,
+    SendMessageW, SetWindowPos, UIS_CLEAR, UISF_HIDEFOCUS, WM_CHANGEUISTATE, WM_TIMER,
 };
+
+fn idle(main: HWND) {
+    unsafe {
+        SendMessageW(main, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
+    }
+    pump(main);
+}
+
+fn focus(main: HWND, target: HWND) {
+    unsafe {
+        let _ = SetFocus(Some(target));
+    }
+    pump(main);
+}
+
+fn keyboard_cues(main: HWND, visible: bool) {
+    let action = if visible {
+        UIS_CLEAR
+    } else {
+        windows::Win32::UI::WindowsAndMessaging::UIS_SET
+    };
+    unsafe {
+        SendMessageW(
+            main,
+            WM_CHANGEUISTATE,
+            Some(WPARAM(
+                (action as usize) | ((UISF_HIDEFOCUS as usize) << 16),
+            )),
+            None,
+        );
+    }
+    pump(main);
+}
 
 fn resize_client(main: HWND, width: i32, height: i32) -> windows::core::Result<()> {
     let mut window = RECT::default();
@@ -83,6 +117,41 @@ fn main() -> windows::core::Result<()> {
     }
     let main = handles.main;
     snap(main, &directory, "01-inicial-2x2")?;
+    write(&handles, 0, 0, "2");
+    write(&handles, 0, 1, "1");
+    write(&handles, 0, 3, "5");
+    snap(main, &directory, "01a-digitando-faltam-3")?;
+    write(&handles, 1, 0, "1");
+    write(&handles, 1, 1, "-1");
+    write(&handles, 1, 3, "1");
+    snap(main, &directory, "01b-resposta-ao-vivo")?;
+    write(&handles, 1, 3, "");
+    snap(main, &directory, "01c-atualizando-esmaecido")?;
+    idle(main);
+    snap(main, &directory, "01d-assentado-falta-1")?;
+    write(&handles, 1, 3, "1");
+    focus(main, handles.inputs[0][0]);
+    write(&handles, 0, 0, "2^1");
+    snap(main, &directory, "01e-valor-lido-da-potencia")?;
+    focus(main, handles.inputs[1][1]);
+    write(&handles, 0, 1, "1/0");
+    idle(main);
+    snap(main, &directory, "01f-erro-revelado")?;
+    write(&handles, 0, 1, "1e999");
+    write(&handles, 0, 3, "1e998");
+    write(&handles, 1, 3, "1e997");
+    idle(main);
+    snap(main, &directory, "01g-numeros-grandes")?;
+    click(&handles, Button::Clear);
+    keyboard_cues(main, true);
+    focus(main, handles.links[1]);
+    snap(main, &directory, "01h-foco-no-link-com-dica")?;
+    focus(main, handles.two);
+    snap(main, &directory, "01i-foco-no-segmento")?;
+    focus(main, handles.solve);
+    snap(main, &directory, "01j-foco-em-resolver")?;
+    focus(main, handles.inputs[0][0]);
+    keyboard_cues(main, false);
     click(&handles, Button::Example);
     snap(main, &directory, "02-exemplo-2x2-pronto")?;
     click(&handles, Button::Solve);

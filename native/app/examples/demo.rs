@@ -137,14 +137,29 @@ fn main() -> windows::core::Result<()> {
         &[
             &["1", "1", "1", "6"],
             &["2", "-1", "1", "3"],
-            &["1", "2", "-1", "2"],
+            &["1", "2^1", "-1", "2"],
         ],
     )?;
-    passar_o_mouse(&handles, Button::Solve);
-    filme.quadro(main, 0.6, false)?;
+    filme.quadro(main, 2.6, true)?;
+    passar_o_mouse(&handles, Button::LinkCramer);
+    filme.quadro(main, 1.4, false)?;
     pump(main);
-    click(&handles, Button::Solve);
-    filme.quadro(main, 3.2, true)?;
+    click(&handles, Button::LinkCramer);
+    filme.quadro(main, 3.4, true)?;
+    click(&handles, Button::Back);
+    filme.quadro(main, 0.6, true)?;
+    let termo = handles.inputs[0][3];
+    unsafe {
+        let _ = SetFocus(Some(termo));
+        SendMessageW(
+            termo,
+            windows::Win32::UI::Controls::EM_SETSEL,
+            Some(WPARAM(0)),
+            Some(LPARAM(-1)),
+        );
+    }
+    digitar(&handles, 0, 3, "7");
+    filme.quadro(main, 2.4, true)?;
     passar_o_mouse(&handles, Button::Clear);
     filme.quadro(main, 0.45, false)?;
     pump(main);
@@ -153,10 +168,6 @@ fn main() -> windows::core::Result<()> {
     click(&handles, Button::Two);
     filme.quadro(main, 0.7, true)?;
     preencher(&mut filme, &handles, &[&["1", "1", "2"], &["2", "2", "4"]])?;
-    passar_o_mouse(&handles, Button::Solve);
-    filme.quadro(main, 0.6, false)?;
-    pump(main);
-    click(&handles, Button::Solve);
     filme.quadro(main, 3.6, true)?;
     filme.fechar().map_err(|error| {
         windows::core::Error::new(windows::core::HRESULT(-1), error.to_string())

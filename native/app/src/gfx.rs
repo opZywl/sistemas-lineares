@@ -48,6 +48,7 @@ use crate::fonts::{self, GdiFont, TextMetrics};
 use crate::icons::{Icon, Shape, VIEWBOX};
 use crate::layout::Rect;
 use crate::theme::{self, Color, Font};
+pub use sistemas_lineares_ui::text::{margins_for, wrap, wrap_lines};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Align {
@@ -109,58 +110,6 @@ fn point(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 
-pub fn margins_for(metric: TextMetrics) -> (i32, i32) {
-    let overhang = metric.height.max(0) as f32 / 6.0;
-    (overhang.ceil() as i32, (overhang * 1.5).ceil() as i32)
-}
-
-fn wrap(paragraph: &str, available: i32, measure: &dyn Fn(&str) -> i32) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    for word in paragraph.split(' ') {
-        let candidate = if current.is_empty() {
-            word.to_string()
-        } else {
-            format!("{current} {word}")
-        };
-        if measure(&candidate) <= available {
-            current = candidate;
-            continue;
-        }
-        if !current.is_empty() {
-            lines.push(std::mem::take(&mut current));
-        }
-        let mut piece = String::new();
-        for character in word.chars() {
-            let mut next = piece.clone();
-            next.push(character);
-            if !piece.is_empty() && measure(&next) > available {
-                lines.push(std::mem::take(&mut piece));
-                piece.push(character);
-            } else {
-                piece = next;
-            }
-        }
-        current = piece;
-    }
-    lines.push(current);
-    lines
-}
-
-pub fn wrap_lines(text: &str, available: i32, measure: &dyn Fn(&str) -> i32) -> Vec<String> {
-    let available = available.max(1);
-    text.split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line))
-        .flat_map(|line| {
-            if measure(line) <= available {
-                vec![line.to_string()]
-            } else {
-                wrap(line, available, measure)
-            }
-        })
-        .collect()
-}
-
 struct PlacedLine {
     text: String,
     x: i32,
@@ -219,16 +168,15 @@ fn plan_text(
     placed
 }
 
-pub fn gdi_extent(font: &GdiFont, text: &str) -> Option<i32> {
+fn gdi_extent_in(dc: HDC, font: &GdiFont, text: &str) -> Option<i32> {
     let mut wide: Vec<u16> = text.encode_utf16().collect();
     if wide.is_empty() {
         return Some(0);
     }
+    if dc.is_invalid() {
+        return None;
+    }
     unsafe {
-        let dc = CreateCompatibleDC(None);
-        if dc.is_invalid() {
-            return None;
-        }
         let previous = SelectObject(dc, HGDIOBJ(font.handle().0));
         let mut rect = RECT {
             left: 0,
@@ -243,8 +191,68 @@ pub fn gdi_extent(font: &GdiFont, text: &str) -> Option<i32> {
             DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP,
         );
         SelectObject(dc, previous);
-        let _ = DeleteDC(dc);
         (height != 0).then_some(rect.right - rect.left)
+    }
+}
+
+pub fn gdi_extent(font: &GdiFont, text: &str) -> Option<i32> {
+    unsafe {
+        let dc = CreateCompatibleDC(None);
+        let width = gdi_extent_in(dc, font, text);
+        if !dc.is_invalid() {
+            let _ = DeleteDC(dc);
+        }
+        width
+    }
+}
+
+const WIDTH_CACHE_LIMIT: usize = 16_384;
+
+struct Widths {
+    dc: HDC,
+    known: RefCell<Vec<HashMap<String, i32>>>,
+}
+
+impl Widths {
+    fn new() -> Widths {
+        Widths {
+            dc: unsafe { CreateCompatibleDC(None) },
+            known: RefCell::new(vec![HashMap::new(); Font::COUNT]),
+        }
+    }
+
+    fn clear(&self) {
+        if let Ok(mut known) = self.known.try_borrow_mut() {
+            known.iter_mut().for_each(HashMap::clear);
+        }
+    }
+
+    fn get(&self, font: Font, text: &str, compute: impl FnOnce(HDC) -> Option<i32>) -> Option<i32> {
+        if let Ok(known) = self.known.try_borrow() {
+            if let Some(width) = known.get(font.index()).and_then(|map| map.get(text)) {
+                return Some(*width);
+            }
+        }
+        let width = compute(self.dc)?;
+        if let Ok(mut known) = self.known.try_borrow_mut() {
+            if let Some(map) = known.get_mut(font.index()) {
+                if map.len() >= WIDTH_CACHE_LIMIT {
+                    map.clear();
+                }
+                map.insert(text.to_string(), width);
+            }
+        }
+        Some(width)
+    }
+}
+
+impl Drop for Widths {
+    fn drop(&mut self) {
+        if !self.dc.is_invalid() {
+            unsafe {
+                let _ = DeleteDC(self.dc);
+            }
+        }
     }
 }
 
@@ -269,6 +277,7 @@ pub struct Engine {
     target: Option<ID2D1DCRenderTarget>,
     brush: Option<ID2D1SolidColorBrush>,
     cache: RefCell<HashMap<(Font, String), CachedText>>,
+    widths: Widths,
 }
 
 impl Drop for Engine {
@@ -499,6 +508,7 @@ impl Engine {
                 target: None,
                 brush: None,
                 cache: RefCell::new(HashMap::new()),
+                widths: Widths::new(),
             };
             engine.set_dpi(dpi)?;
             Ok(engine)
@@ -552,6 +562,7 @@ impl Engine {
         if let Ok(mut cache) = self.cache.try_borrow_mut() {
             cache.clear();
         }
+        self.widths.clear();
         self.formats = formats;
         self.metrics = metrics;
         self.gdi_fonts = Font::ALL
@@ -581,12 +592,7 @@ impl Engine {
             )
         }
         .ok()?;
-        let width = match self
-            .gdi_fonts
-            .get(font.index())
-            .and_then(Option::as_ref)
-            .and_then(|gdi_font| gdi_extent(gdi_font, text))
-        {
+        let width = match self.gdi_width(text, font) {
             Some(width) => width,
             None => {
                 let mut metrics = DWRITE_TEXT_METRICS::default();
@@ -609,8 +615,17 @@ impl Engine {
         Some((layout, width))
     }
 
+    fn gdi_width(&self, text: &str, font: Font) -> Option<i32> {
+        let gdi_font = self.gdi_fonts.get(font.index()).and_then(Option::as_ref)?;
+        self.widths
+            .get(font, text, |dc| gdi_extent_in(dc, gdi_font, text))
+    }
+
     pub fn measure(&self, text: &str, font: Font) -> i32 {
-        self.layout(text, font).map_or(0, |(_, width)| width)
+        match self.gdi_width(text, font) {
+            Some(width) => width,
+            None => self.layout(text, font).map_or(0, |(_, width)| width),
+        }
     }
 
     pub fn margins(&self, font: Font) -> (i32, i32) {
@@ -725,6 +740,7 @@ pub struct GdiResources {
     dpi: u32,
     fonts: Vec<Option<GdiFont>>,
     metrics: [TextMetrics; Font::COUNT],
+    widths: Widths,
 }
 
 impl GdiResources {
@@ -752,6 +768,7 @@ impl GdiResources {
             dpi,
             fonts,
             metrics,
+            widths: Widths::new(),
         }
     }
 
@@ -769,7 +786,10 @@ impl GdiResources {
 
     pub fn measure(&self, text: &str, font: Font) -> i32 {
         self.font(font)
-            .and_then(|gdi_font| gdi_extent(gdi_font, text))
+            .and_then(|gdi_font| {
+                self.widths
+                    .get(font, text, |dc| gdi_extent_in(dc, gdi_font, text))
+            })
             .unwrap_or(0)
     }
 
@@ -1061,6 +1081,53 @@ impl Painter<'_> {
                     None,
                     Some((value, if dotted { PS_DOT } else { PS_SOLID })),
                 );
+            }
+        }
+    }
+
+    pub fn ring(&self, frame: Frame, value: Color, width: f32) {
+        if frame.width <= 0.0 || frame.height <= 0.0 || value.a == 0 || width <= 0.0 {
+            return;
+        }
+        match &self.backend {
+            Backend::Direct { target, brush, .. } => {
+                let half = width / 2.0;
+                let radius = (frame.radius - half).max(0.0);
+                let shape = D2D1_ROUNDED_RECT {
+                    rect: D2D_RECT_F {
+                        left: frame.x + half,
+                        top: frame.y + half,
+                        right: frame.x + frame.width - half,
+                        bottom: frame.y + frame.height - half,
+                    },
+                    radiusX: radius,
+                    radiusY: radius,
+                };
+                Painter::set_color(brush, value);
+                unsafe {
+                    target.DrawRoundedRectangle(&shape, *brush, width, None::<&ID2D1StrokeStyle>)
+                };
+            }
+            Backend::Gdi { hdc, .. } => {
+                if value.a < 255 {
+                    return;
+                }
+                let steps = width.round().max(1.0) as i32;
+                for step in 0..steps {
+                    let inset = step as f32;
+                    Painter::gdi_round_rect(
+                        *hdc,
+                        Frame::new(
+                            frame.x + inset,
+                            frame.y + inset,
+                            frame.width - 1.0 - 2.0 * inset,
+                            frame.height - 1.0 - 2.0 * inset,
+                            (frame.radius - inset).max(0.0),
+                        ),
+                        None,
+                        Some((value, PS_SOLID)),
+                    );
+                }
             }
         }
     }

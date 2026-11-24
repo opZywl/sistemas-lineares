@@ -1,3 +1,5 @@
+#![cfg(windows)]
+
 mod comum;
 
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+use std::mem::ManuallyDrop;
+
+use sistemas_lineares::layout::Rect;
 use sistemas_lineares::theme::Color;
 use sistemas_lineares::{Button, Handles, Launch, Renderer, create, dispatch, pump, window_text};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
@@ -10,14 +13,22 @@ use windows::Win32::Graphics::Gdi::{
     RedrawWindow, SelectObject,
 };
 use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PW_CLIENTONLY, PrintWindow};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, IsWindowEnabled, VIRTUAL_KEY};
+use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_I4};
+use windows::Win32::UI::Accessibility::{AccessibleObjectFromWindow, IAccessible};
+use windows::Win32::UI::Controls::{
+    EM_GETSEL, TOOLTIP_FLAGS, TTF_IDISHWND, TTM_GETTEXTW, TTTOOLINFOW,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetFocus, GetKeyboardState, IsWindowEnabled, SetKeyboardState, VIRTUAL_KEY,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     BN_CLICKED, DestroyWindow, GetClientRect, IsWindow, IsWindowVisible, MSG, PRF_CHILDREN,
     PRF_CLIENT, PRF_ERASEBKGND, PW_RENDERFULLCONTENT, SendMessageW, WM_CHAR, WM_COMMAND,
     WM_KEYDOWN, WM_KEYUP, WM_PRINT, WM_SETTEXT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, PRF_NONCLIENT};
-use windows::core::HSTRING;
+use windows::Win32::UI::WindowsAndMessaging::{OBJID_CLIENT, WM_TIMER};
+use windows::core::{HSTRING, Interface, PWSTR};
 
 pub const FORA_DA_TELA: (i32, i32) = (-4000, 0);
 pub const CLIENTE: (i32, i32) = (1160, 810);
@@ -111,6 +122,114 @@ pub fn digitar(handles: &Handles, target: HWND, text: &str) {
         dispatch(handles.main, &message);
     }
     pump(handles.main);
+}
+
+pub fn ocioso(handles: &Handles) {
+    unsafe {
+        SendMessageW(handles.main, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
+    }
+    pump(handles.main);
+}
+
+pub fn com_teclas<T>(teclas: &[VIRTUAL_KEY], acao: impl FnOnce() -> T) -> T {
+    let mut estado = [0u8; 256];
+    unsafe {
+        let _ = GetKeyboardState(&mut estado);
+        let mut com = estado;
+        for modificadora in [0x10usize, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5] {
+            com[modificadora] = 0;
+        }
+        for tecla in teclas {
+            com[usize::from(tecla.0)] = 0x80;
+        }
+        let _ = SetKeyboardState(&com);
+    }
+    let resultado = acao();
+    unsafe {
+        let _ = SetKeyboardState(&estado);
+    }
+    resultado
+}
+
+pub fn selecao(hwnd: HWND) -> (u32, u32) {
+    let mut inicio = 0u32;
+    let mut fim = 0u32;
+    unsafe {
+        SendMessageW(
+            hwnd,
+            EM_GETSEL,
+            Some(WPARAM((&mut inicio as *mut u32) as usize)),
+            Some(LPARAM((&mut fim as *mut u32) as isize)),
+        );
+    }
+    (inicio, fim)
+}
+
+fn variante(valor: i32) -> VARIANT {
+    VARIANT {
+        Anonymous: VARIANT_0 {
+            Anonymous: ManuallyDrop::new(VARIANT_0_0 {
+                vt: VT_I4,
+                wReserved1: 0,
+                wReserved2: 0,
+                wReserved3: 0,
+                Anonymous: VARIANT_0_0_0 { lVal: valor },
+            }),
+        },
+    }
+}
+
+fn acessivel(hwnd: HWND) -> Option<IAccessible> {
+    let mut objeto = std::ptr::null_mut();
+    unsafe {
+        AccessibleObjectFromWindow(hwnd, OBJID_CLIENT.0 as u32, &IAccessible::IID, &mut objeto)
+    }
+    .ok()?;
+    (!objeto.is_null()).then(|| unsafe { IAccessible::from_raw(objeto) })
+}
+
+pub fn nome_acessivel(hwnd: HWND) -> String {
+    acessivel(hwnd)
+        .and_then(|objeto| unsafe { objeto.get_accName(&variante(0)) }.ok())
+        .map(|nome| nome.to_string())
+        .unwrap_or_default()
+}
+
+pub fn descricao_acessivel(hwnd: HWND) -> String {
+    acessivel(hwnd)
+        .and_then(|objeto| unsafe { objeto.get_accDescription(&variante(0)) }.ok())
+        .map(|texto| texto.to_string())
+        .unwrap_or_default()
+}
+
+pub fn dica(handles: &Handles, ferramenta: usize, por_janela: bool) -> String {
+    let mut buffer = [0u16; 256];
+    let mut info = TTTOOLINFOW {
+        cbSize: std::mem::size_of::<TTTOOLINFOW>() as u32,
+        uFlags: if por_janela {
+            TTF_IDISHWND
+        } else {
+            TOOLTIP_FLAGS(0)
+        },
+        hwnd: handles.canvas,
+        uId: ferramenta,
+        lpszText: PWSTR(buffer.as_mut_ptr()),
+        ..Default::default()
+    };
+    unsafe {
+        SendMessageW(
+            handles.tooltip,
+            TTM_GETTEXTW,
+            Some(WPARAM(buffer.len())),
+            Some(LPARAM((&mut info as *mut TTTOOLINFOW) as isize)),
+        );
+    }
+    let fim = buffer.iter().position(|unit| *unit == 0).unwrap_or(0);
+    String::from_utf16_lossy(&buffer[..fim])
+}
+
+pub fn area(rect: Rect) -> (i32, i32, i32, i32) {
+    (rect.x, rect.y, rect.right(), rect.bottom())
 }
 
 pub fn texto(hwnd: HWND) -> String {

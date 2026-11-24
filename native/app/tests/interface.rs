@@ -1,7 +1,8 @@
+#![cfg(windows)]
+
 mod comum;
 
 use std::cell::RefCell;
-use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
@@ -25,13 +26,13 @@ use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
 use windows::Win32::System::Threading::GetCurrentProcessId;
-use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_I4};
+use windows::Win32::System::Variant::VT_I4;
 use windows::Win32::UI::Accessibility::{
-    AccessibleObjectFromWindow, CUIAutomation, HWINEVENTHOOK, IAccessible, IUIAutomation,
-    SetWinEventHook, UIA_LiveSettingPropertyId, UnhookWinEvent,
+    CUIAutomation, HWINEVENTHOOK, IUIAutomation, SetWinEventHook, UIA_LiveSettingPropertyId,
+    UnhookWinEvent,
 };
 use windows::Win32::UI::Controls::{
-    EM_GETLIMITTEXT, EM_GETMARGINS, EM_GETSEL, EM_SETSEL, TTF_IDISHWND, TTM_GETTEXTW, TTTOOLINFOW,
+    EM_GETLIMITTEXT, EM_GETMARGINS, EM_SETSEL, TTF_IDISHWND, TTM_GETTEXTW, TTTOOLINFOW,
     WM_MOUSELEAVE,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -39,44 +40,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_SPACE,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{Interface, PWSTR};
-
-fn variante(valor: i32) -> VARIANT {
-    VARIANT {
-        Anonymous: VARIANT_0 {
-            Anonymous: ManuallyDrop::new(VARIANT_0_0 {
-                vt: VT_I4,
-                wReserved1: 0,
-                wReserved2: 0,
-                wReserved3: 0,
-                Anonymous: VARIANT_0_0_0 { lVal: valor },
-            }),
-        },
-    }
-}
-
-fn acessivel(hwnd: HWND) -> Option<IAccessible> {
-    let mut objeto = std::ptr::null_mut();
-    unsafe {
-        AccessibleObjectFromWindow(hwnd, OBJID_CLIENT.0 as u32, &IAccessible::IID, &mut objeto)
-    }
-    .ok()?;
-    (!objeto.is_null()).then(|| unsafe { IAccessible::from_raw(objeto) })
-}
-
-fn nome_acessivel(hwnd: HWND) -> String {
-    acessivel(hwnd)
-        .and_then(|objeto| unsafe { objeto.get_accName(&variante(0)) }.ok())
-        .map(|nome| nome.to_string())
-        .unwrap_or_default()
-}
-
-fn descricao_acessivel(hwnd: HWND) -> String {
-    acessivel(hwnd)
-        .and_then(|objeto| unsafe { objeto.get_accDescription(&variante(0)) }.ok())
-        .map(|texto| texto.to_string())
-        .unwrap_or_default()
-}
+use windows::core::PWSTR;
 
 fn face_e_altura(hwnd: HWND) -> (String, i32) {
     unsafe {
@@ -94,20 +58,6 @@ fn face_e_altura(hwnd: HWND) -> (String, i32) {
             metricas.tmHeight,
         )
     }
-}
-
-fn selecao(hwnd: HWND) -> (u32, u32) {
-    let mut inicio = 0u32;
-    let mut fim = 0u32;
-    unsafe {
-        SendMessageW(
-            hwnd,
-            EM_GETSEL,
-            Some(WPARAM((&mut inicio as *mut u32) as usize)),
-            Some(LPARAM((&mut fim as *mut u32) as isize)),
-        );
-    }
-    (inicio, fim)
 }
 
 fn com_ctrl<T>(acao: impl FnOnce() -> T) -> T {
@@ -191,8 +141,13 @@ fn fluxo_completo_por_mensagens() {
             "exemplo ({row},{column})"
         );
     }
-    assert_eq!(foco(), h.solve, "exemplo foca Resolver");
+    assert_eq!(foco(), h.inputs[0][0], "exemplo não mexe no foco");
     assert_eq!(texto(h.helper), model::EXAMPLE_HELPER);
+    assert_eq!(
+        [texto(h.values[0]), texto(h.values[1])],
+        ["2", "1"],
+        "o exemplo já aparece resolvido"
+    );
 
     clicar(&h, Button::Solve);
     assert_eq!(texto(h.values[0]), "2");
@@ -205,8 +160,22 @@ fn fluxo_completo_por_mensagens() {
     assert_eq!(selecao(h.values[0]), (0, 0));
 
     escrever(&h, 0, 0, "4");
-    assert!(!habilitado(h.copy), "editar invalida o resultado");
+    assert_eq!(
+        [texto(h.values[0]), texto(h.values[1])],
+        ["6/5", "1/5"],
+        "a resposta acompanha a edição"
+    );
+    assert!(habilitado(h.copy), "resultado ao vivo continua copiável");
+    escrever(&h, 0, 0, "");
+    assert!(!habilitado(h.copy), "resultado esmaecido não copia");
+    assert!(
+        visivel(h.title) && !visivel(h.empty_title),
+        "o resultado anterior fica esmaecido"
+    );
+    assert_eq!(texto(h.note), model::NOTE_STALE);
+    ocioso(&h);
     assert!(!visivel(h.title) && visivel(h.empty_title));
+    assert_eq!(texto(h.empty_title), "Falta 1 campo");
     assert_eq!(texto(h.note), model::NOTE_DEFAULT);
 
     clicar(&h, Button::Three);
@@ -283,25 +252,28 @@ fn ordem_do_tab_e_circular() {
         h.solve,
         h.example,
         h.clear,
+        h.links[0],
+        h.links[1],
+        h.links[2],
         h.author,
         h.two,
     ];
     assert_eq!(
-        sequencia(&h, 12, false),
+        sequencia(&h, 15, false),
         esperado,
         "Tab no 2x2 com Copiar desabilitado"
     );
     let mut reverso = esperado.clone();
     reverso.reverse();
     assert_eq!(
-        sequencia(&h, 12, true),
+        sequencia(&h, 15, true),
         reverso,
         "Shift+Tab inverte a ordem"
     );
     clicar(&h, Button::Three);
     clicar(&h, Button::Example);
     clicar(&h, Button::Solve);
-    let tres = sequencia(&h, 20, false);
+    let tres = sequencia(&h, 23, false);
     let esperado3 = vec![
         h.two,
         h.three,
@@ -322,6 +294,9 @@ fn ordem_do_tab_e_circular() {
         h.clear,
         h.think,
         h.copy,
+        h.links[0],
+        h.links[1],
+        h.links[2],
         h.author,
         h.two,
     ];
@@ -333,9 +308,11 @@ fn ordem_do_tab_e_circular() {
 fn teclado_enter_espaco_esc_e_atalhos() {
     let h = janela();
     tecla(&h, h.inputs[0][0], VK_RETURN);
-    assert!(
-        texto(h.helper).starts_with("Equação 1"),
-        "Enter no campo resolve"
+    assert_eq!(foco(), h.inputs[0][1], "Enter leva ao próximo campo vazio");
+    assert_eq!(
+        texto(h.helper),
+        model::DEFAULT_HELPER,
+        "Enter não acusa erro"
     );
     unsafe {
         let _ = SetFocus(Some(h.example));
@@ -1316,7 +1293,15 @@ fn modo_pensar_por_mensagens() {
     clicar(&h, Button::Back);
     assert!(!diagnostics(h.main).expect("diagnóstico").thinking);
     escrever(&h, 0, 0, "4");
-    assert!(!habilitado(h.think), "editar desabilita o modo pensar");
+    assert!(
+        habilitado(h.think),
+        "resultado ao vivo mantém o modo pensar"
+    );
+    escrever(&h, 0, 0, "");
+    assert!(
+        !habilitado(h.think),
+        "resultado esmaecido desabilita o modo pensar"
+    );
     clicar(&h, Button::Think);
     assert!(!diagnostics(h.main).expect("diagnóstico").thinking);
     nao_e_primeiro_plano(&h);

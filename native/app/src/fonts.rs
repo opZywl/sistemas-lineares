@@ -10,9 +10,10 @@ use windows::Win32::Graphics::Gdi::{
 
 use crate::theme::Font;
 
-pub static REGULAR: &[u8] = include_bytes!("../../../assets/SpaceGrotesk-Regular.ttf");
-pub static BOLD: &[u8] = include_bytes!("../../../assets/SpaceGrotesk-Bold.ttf");
-pub const FAMILY: &str = "Space Grotesk";
+pub use sistemas_lineares_ui::text::{
+    BOLD, FAMILY, REGULAR, TextMetrics, line_spacing_ratio, preferred_height,
+};
+
 pub const FALLBACK: &str = "Segoe UI";
 
 struct Registration(Vec<isize>);
@@ -43,40 +44,6 @@ pub fn register_gdi() -> bool {
 
 pub fn gdi_face() -> &'static str {
     if register_gdi() { FAMILY } else { FALLBACK }
-}
-
-pub fn line_spacing_ratio(data: &[u8]) -> Option<f32> {
-    let read16 = |offset: usize| {
-        data.get(offset..offset + 2)
-            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
-    };
-    let read32 = |offset: usize| {
-        data.get(offset..offset + 4)
-            .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-    };
-    let tables = read16(4)? as usize;
-    let mut head = None;
-    let mut hhea = None;
-    for index in 0..tables {
-        let record = 12 + 16 * index;
-        let tag = data.get(record..record + 4)?;
-        let offset = read32(record + 8)? as usize;
-        match tag {
-            b"head" => head = Some(offset),
-            b"hhea" => hhea = Some(offset),
-            _ => {}
-        }
-    }
-    let units = read16(head? + 18)? as f32;
-    let hhea = hhea?;
-    let ascender = read16(hhea + 4)? as i16 as f32;
-    let descender = read16(hhea + 6)? as i16 as f32;
-    let gap = read16(hhea + 8)? as i16 as f32;
-    (units > 0.0).then(|| (ascender - descender + gap) / units)
-}
-
-pub fn preferred_height(pixels: i32) -> Option<i32> {
-    line_spacing_ratio(REGULAR).map(|ratio| (pixels as f32 * ratio).ceil() as i32)
 }
 
 pub struct GdiFont(HFONT);
@@ -164,14 +131,6 @@ impl Drop for GdiFont {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TextMetrics {
-    pub height: i32,
-    pub ascent: i32,
-    pub descent: i32,
-    pub external_leading: i32,
-}
-
 pub fn role_metrics(dpi: u32) -> [TextMetrics; Font::COUNT] {
     let mut result = [TextMetrics::default(); Font::COUNT];
     for role in Font::ALL {
@@ -192,14 +151,6 @@ pub fn role_metrics(dpi: u32) -> [TextMetrics; Font::COUNT] {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn espacamento_da_space_grotesk() {
-        let ratio = line_spacing_ratio(REGULAR).unwrap();
-        assert!((ratio - 1.276).abs() < 1e-4);
-        assert_eq!(preferred_height(16), Some(21));
-        assert_eq!(preferred_height(32), Some(41));
-    }
 
     #[test]
     fn fonte_gdi_em_memoria() {

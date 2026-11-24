@@ -21,6 +21,7 @@ path = "examples/capturas.rs"
 
 [dependencies]
 sistemas-lineares-core = { path = "../core" }
+sistemas-lineares-ui = { path = "../ui" }
 
 [target.'cfg(windows)'.dependencies]
 windows-numerics = "0.3.1"
