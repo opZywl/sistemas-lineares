@@ -1,15 +1,18 @@
 # Sistemas Lineares - opZywl | https://lucas-lima.xyz
 *.cmd text eol=crlf
+*.sh text eol=lf
 *.rsp text eol=crlf
 *.rs text eol=lf
 *.toml text eol=lf
 *.md text eol=lf
 *.js text eol=lf
 *.cjs text eol=lf
+*.py text eol=lf
 *.css text eol=lf
 *.html text eol=lf
 *.yml text eol=lf
 *.svg text eol=lf
+tests/*.txt text eol=lf
 *.ttf binary
 *.woff2 binary
 *.ico binary

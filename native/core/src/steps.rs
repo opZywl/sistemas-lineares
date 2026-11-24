@@ -235,23 +235,27 @@ fn coefficient_prefix(magnitude: &Rational) -> String {
     }
 }
 
+fn push_term(text: &mut String, coefficient: &Rational, column: usize) {
+    if coefficient.is_zero() {
+        return;
+    }
+    let negative = coefficient.is_negative();
+    let size = magnitude(coefficient);
+    if text.is_empty() {
+        if negative {
+            text.push(MINUS);
+        }
+    } else {
+        text.push_str(if negative { " \u{2212} " } else { " + " });
+    }
+    text.push_str(&coefficient_prefix(&size));
+    text.push_str(VARIABLE_NAMES[column]);
+}
+
 pub fn left_side(coefficients: &[Rational]) -> String {
     let mut text = String::new();
     for (column, coefficient) in coefficients.iter().enumerate() {
-        if coefficient.is_zero() {
-            continue;
-        }
-        let negative = coefficient.is_negative();
-        let size = magnitude(coefficient);
-        if text.is_empty() {
-            if negative {
-                text.push(MINUS);
-            }
-        } else {
-            text.push_str(if negative { " \u{2212} " } else { " + " });
-        }
-        text.push_str(&coefficient_prefix(&size));
-        text.push_str(VARIABLE_NAMES[column]);
+        push_term(&mut text, coefficient, column);
     }
     if text.is_empty() {
         text.push('0');
@@ -262,6 +266,94 @@ pub fn left_side(coefficients: &[Rational]) -> String {
 pub fn equation(row: &[Rational]) -> String {
     let count = row.len() - 1;
     format!("{} = {}", left_side(&row[..count]), number(&row[count]))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Entry {
+    Missing,
+    Invalid,
+    Value(Rational),
+}
+
+pub const PREVIEW_DIGIT_LIMIT: usize = 12;
+
+fn abbreviate_digits(output: &mut String, digits: &str) {
+    if digits.len() <= PREVIEW_DIGIT_LIMIT {
+        output.push_str(digits);
+        return;
+    }
+    output.push_str(&digits[..4]);
+    output.push('\u{2026}');
+    output.push_str(&digits[digits.len() - 4..]);
+}
+
+pub fn abbreviate(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut digits = String::new();
+    for character in text.chars() {
+        if character.is_ascii_digit() {
+            digits.push(character);
+            continue;
+        }
+        abbreviate_digits(&mut output, &digits);
+        digits.clear();
+        output.push(character);
+    }
+    abbreviate_digits(&mut output, &digits);
+    output
+}
+
+fn push_preview_term(text: &mut String, coefficient: &Rational, column: usize) {
+    if coefficient.is_zero() {
+        return;
+    }
+    let negative = coefficient.is_negative();
+    let size = magnitude(coefficient);
+    if text.is_empty() {
+        if negative {
+            text.push(MINUS);
+        }
+    } else {
+        text.push_str(if negative { " \u{2212} " } else { " + " });
+    }
+    if !size.is_one() {
+        let shown = abbreviate(&size.to_string());
+        if is_integer(&size) {
+            text.push_str(&shown);
+        } else {
+            text.push('(');
+            text.push_str(&shown);
+            text.push(')');
+        }
+    }
+    text.push_str(VARIABLE_NAMES[column]);
+}
+
+pub fn preview_equation(row: &[Entry]) -> String {
+    let Some((constant, coefficients)) = row.split_last() else {
+        return String::new();
+    };
+    let mut text = String::new();
+    for (column, entry) in coefficients.iter().enumerate() {
+        match entry {
+            Entry::Value(coefficient) => push_preview_term(&mut text, coefficient, column),
+            Entry::Missing | Entry::Invalid => {
+                if !text.is_empty() {
+                    text.push_str(" + ");
+                }
+                text.push('?');
+                text.push_str(VARIABLE_NAMES[column]);
+            }
+        }
+    }
+    if text.is_empty() {
+        text.push('0');
+    }
+    let right = match constant {
+        Entry::Value(value) => abbreviate(&number(value)),
+        Entry::Missing | Entry::Invalid => "?".to_string(),
+    };
+    format!("{text} = {right}")
 }
 
 fn vector(row: &[Rational]) -> String {

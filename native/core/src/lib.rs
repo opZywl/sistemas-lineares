@@ -5,12 +5,40 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
+pub mod power;
 pub mod steps;
 
-pub use steps::{LineKind, MathLine, MatrixView, Method, RowOp, Step, Walkthrough, walkthrough};
+pub use steps::{
+    Entry, LineKind, MathLine, MatrixView, Method, RowOp, Step, Walkthrough, preview_equation,
+    walkthrough,
+};
 
 pub const MAX_INPUT_LENGTH: usize = 100;
 pub const MAX_EXPONENT: i32 = 1000;
+pub const LIVE_BUDGET_BITS: u64 = 8000;
+
+pub fn looks_incomplete(input: &str) -> bool {
+    let text = input.trim().replace(',', ".").replace('\u{2212}', "-");
+    let Some(last) = text.chars().last() else {
+        return false;
+    };
+    let open = text.chars().filter(|character| *character == '(').count();
+    let close = text.chars().filter(|character| *character == ')').count();
+    open > close
+        || matches!(
+            last,
+            '+' | '-' | '/' | '^' | '*' | '(' | 'e' | 'E' | '.' | '\u{207A}' | '\u{207B}'
+        )
+}
+
+pub fn within_live_budget(matrix: &[Vec<Rational>]) -> bool {
+    let bits: u64 = matrix
+        .iter()
+        .flatten()
+        .map(|value| value.numerator().bits() + value.denominator().bits())
+        .sum();
+    bits <= LIVE_BUDGET_BITS
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Rational {
@@ -25,6 +53,13 @@ pub enum ParseError {
     Invalid,
     Exponent,
     ZeroDenominator,
+    PowerExponent,
+    PowerChain,
+    PowerTooLarge,
+    ZeroToZero,
+    ZeroNegativePower,
+    Parenthesis,
+    Product,
 }
 
 impl ParseError {
@@ -35,6 +70,19 @@ impl ParseError {
             ParseError::Invalid => "Número inválido.",
             ParseError::Exponent => "Use um expoente inteiro entre -1000 e 1000.",
             ParseError::ZeroDenominator => "O denominador não pode ser zero.",
+            ParseError::PowerExponent => {
+                "Use um expoente inteiro de -1000 a 1000, como 2^3 ou 10^-2."
+            }
+            ParseError::PowerChain => "Use parênteses para potência de potência, como (2^3)^2.",
+            ParseError::PowerTooLarge => {
+                "Use números menores: com potências, o limite é de 300 algarismos."
+            }
+            ParseError::ZeroToZero => "0 elevado a 0 é indeterminado.",
+            ParseError::ZeroNegativePower => "0 não pode ser elevado a expoente negativo.",
+            ParseError::Parenthesis => "Confira os parênteses.",
+            ParseError::Product => {
+                "Faça a multiplicação antes: para 1,5×10³, digite 1,5e3 ou 1500."
+            }
         }
     }
 }
@@ -109,6 +157,9 @@ impl Rational {
         if text.encode_utf16().count() > MAX_INPUT_LENGTH {
             return Err(ParseError::TooLong);
         }
+        if power::uses_extension(&text) {
+            return power::parse(&text);
+        }
         let parts: Vec<&str> = text.split('/').collect();
         if parts.len() > 2 {
             return Err(ParseError::Invalid);
@@ -125,7 +176,7 @@ impl Rational {
     }
 }
 
-fn parse_decimal(input: &str) -> Result<Rational, ParseError> {
+pub(crate) fn parse_decimal(input: &str) -> Result<Rational, ParseError> {
     let mut text = input.trim();
     if text.is_empty() {
         return Err(ParseError::Invalid);

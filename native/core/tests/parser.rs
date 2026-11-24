@@ -3,6 +3,7 @@ mod comum;
 use std::fs;
 
 use comum::decodificar_base64;
+use sistemas_lineares_core::power::uses_extension;
 use sistemas_lineares_core::{MAX_EXPONENT, MAX_INPUT_LENGTH, ParseError, Rational};
 
 const CASOS_DE_BORDA: &[(&str, Result<&str, ParseError>)] = &[
@@ -247,7 +248,6 @@ const CASOS_DE_BORDA: &[(&str, Result<&str, ParseError>)] = &[
     ("1 000", Err(ParseError::Invalid)),
     ("1.000,5", Err(ParseError::Invalid)),
     ("1'000", Err(ParseError::Invalid)),
-    ("(1)", Err(ParseError::Invalid)),
     ("$1", Err(ParseError::Invalid)),
     ("1%", Err(ParseError::Invalid)),
     ("abc", Err(ParseError::Invalid)),
@@ -262,7 +262,6 @@ const CASOS_DE_BORDA: &[(&str, Result<&str, ParseError>)] = &[
     ("1\u{1D7CE}", Err(ParseError::Invalid)),
     ("\u{BD}", Err(ParseError::Invalid)),
     ("\u{B2}", Err(ParseError::Invalid)),
-    ("1\u{B2}", Err(ParseError::Invalid)),
     ("\u{221A}2", Err(ParseError::Invalid)),
     ("\u{661}/\u{662}", Err(ParseError::Invalid)),
     ("1\u{200B}", Err(ParseError::Invalid)),
@@ -404,6 +403,7 @@ fn diferencial_completo_contra_csharp() {
     let conteudo = fs::read_to_string(&caminho).expect("saída do helper C#");
     let mut comparadas = 0usize;
     let mut aceitas = 0usize;
+    let mut extensao = 0usize;
     let mut divergencias = Vec::new();
     for linha in conteudo.lines() {
         let mut campos = linha.splitn(3, '\t');
@@ -414,6 +414,14 @@ fn diferencial_completo_contra_csharp() {
         };
         let entrada =
             String::from_utf8(decodificar_base64(codificada)).expect("corpus em UTF-8 válido");
+        let normalizada = entrada.trim().replace(',', ".").replace('\u{2212}', "-");
+        if !normalizada.is_empty()
+            && normalizada.encode_utf16().count() <= MAX_INPUT_LENGTH
+            && uses_extension(&normalizada)
+        {
+            extensao += 1;
+            continue;
+        }
         let (status_rust, resultado_rust) = match Rational::parse(&entrada) {
             Ok(valor) => ("OK", valor.to_string()),
             Err(erro) => ("ERRO", erro.message().to_string()),
@@ -440,7 +448,7 @@ fn diferencial_completo_contra_csharp() {
         "corpus pequeno demais: {comparadas} entradas"
     );
     println!(
-        "PASS: {comparadas} entradas do parser idênticas ao C# ({aceitas} aceitas, {} rejeitadas); 0 divergências",
+        "PASS: {comparadas} entradas do parser idênticas ao C# ({aceitas} aceitas, {} rejeitadas); 0 divergências; {extensao} com potência ou parênteses fora da comparação, por serem extensão da v4.1 sem equivalente no C#",
         comparadas - aceitas
     );
 }
