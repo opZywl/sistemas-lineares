@@ -42,7 +42,8 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     EnableWindow, GetFocus, GetKeyState, IsWindowEnabled, SetFocus, TME_LEAVE, TRACKMOUSEEVENT,
-    TrackMouseEvent, VK_BACK, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_MENU, VK_RETURN, VK_SHIFT, VK_UP,
+    TrackMouseEvent, VK_BACK, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_MENU, VK_RETURN,
+    VK_RIGHT, VK_SHIFT, VK_UP,
 };
 use windows::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, ShellExecuteW,
@@ -81,6 +82,7 @@ const TIMER_IDLE: usize = 1;
 const TIMER_GRAPH: usize = 2;
 const GRAPH_FRAME_MS: u32 = 15;
 const WM_APP_LEAVE: u32 = WM_APP + 1;
+const ARROW_LIMIT: usize = 256;
 const TOOL_THINK_DISABLED: usize = 1;
 const TOOL_COPY_DISABLED: usize = 2;
 pub const ID_STATUS: u16 = 157;
@@ -378,6 +380,7 @@ impl Label {
 
     const fn align(self) -> (Align, VAlign) {
         match self {
+            Label::Dimension => (Align::Right, VAlign::Center),
             Label::EmptyTitle => (Align::Center, VAlign::Center),
             Label::EmptyDescription => (Align::Center, VAlign::Top),
             Label::Helper => (Align::Left, VAlign::Center),
@@ -1255,7 +1258,7 @@ pub fn pump(main: HWND) -> bool {
 pub fn dispatch(main: HWND, message: &MSG) {
     unsafe {
         if IsWindow(Some(main)).as_bool() {
-            if handle_return(main, message) {
+            if handle_return(main, message) || handle_arrow(main, message) {
                 return;
             }
             if IsDialogMessageW(main, message).as_bool() {
@@ -1298,6 +1301,59 @@ fn handle_return(main: HWND, message: &MSG) -> bool {
         Some(Control::Value(_) | Control::General) => true,
         _ => false,
     }
+}
+
+fn handle_arrow(main: HWND, message: &MSG) -> bool {
+    if message.message != WM_KEYDOWN {
+        return false;
+    }
+    let key = message.wParam.0;
+    let previous = if key == usize::from(VK_LEFT.0) || key == usize::from(VK_UP.0) {
+        true
+    } else if key == usize::from(VK_RIGHT.0) || key == usize::from(VK_DOWN.0) {
+        false
+    } else {
+        return false;
+    };
+    let Some(app) = (unsafe { app_from(main) }) else {
+        return false;
+    };
+    let handles = app.handles.get();
+    let origin = message.hwnd;
+    if !matches!(handles.control(origin), Some(Control::Button(_))) {
+        return false;
+    }
+    let label = |hwnd: HWND| {
+        matches!(
+            handles.control(hwnd),
+            Some(Control::Label(_) | Control::Step(_) | Control::Graph)
+        )
+    };
+    let step = |from: HWND| unsafe { GetNextDlgGroupItem(main, Some(from), previous) }.ok();
+    let Some(first) = step(origin).filter(|next| label(*next)) else {
+        return false;
+    };
+    let mut target = first;
+    for _ in 0..ARROW_LIMIT {
+        match step(target) {
+            Some(next) if next == origin || next == first || next == target => return false,
+            Some(next) if label(next) => target = next,
+            Some(next) => {
+                unsafe {
+                    let _ = SetFocus(Some(next));
+                }
+                send(
+                    main,
+                    WM_CHANGEUISTATE,
+                    makelong(UIS_CLEAR as u16, UISF_HIDEFOCUS as u16) as usize,
+                    0,
+                );
+                return true;
+            }
+            None => return false,
+        }
+    }
+    false
 }
 
 pub fn diagnostics(main: HWND) -> Option<Diagnostics> {
@@ -1660,20 +1716,6 @@ impl App {
             button_style,
             ID_THREE,
         )?;
-        for row in 0..3 {
-            for column in 0..4 {
-                let id = ID_INPUT + (row * 4 + column) as u16;
-                let edit = self.child(
-                    canvas,
-                    w!("EDIT"),
-                    "",
-                    WS_CHILD | WS_TABSTOP | WINDOW_STYLE((ES_CENTER | ES_AUTOHSCROLL) as u32),
-                    id,
-                )?;
-                send(edit, EM_SETLIMITTEXT, 32767, 0);
-                handles.inputs[row][column] = edit;
-            }
-        }
         handles.example = self.child(
             canvas,
             w!("BUTTON"),
@@ -1696,6 +1738,20 @@ impl App {
             label_style | WS_VISIBLE,
             ID_DIMENSION,
         )?;
+        for row in 0..3 {
+            for column in 0..4 {
+                let id = ID_INPUT + (row * 4 + column) as u16;
+                let edit = self.child(
+                    canvas,
+                    w!("EDIT"),
+                    "",
+                    WS_CHILD | WS_TABSTOP | WINDOW_STYLE((ES_CENTER | ES_AUTOHSCROLL) as u32),
+                    id,
+                )?;
+                send(edit, EM_SETLIMITTEXT, 32767, 0);
+                handles.inputs[row][column] = edit;
+            }
+        }
         handles.graph = self.child(
             canvas,
             w!("STATIC"),
@@ -2308,6 +2364,7 @@ impl App {
                 RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
             );
         }
+        self.pace_graph();
     }
 
     fn main_message(&self, hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -4867,7 +4924,7 @@ fn draw_canvas(painter: &Painter, state: &CanvasState) {
         palette.muted,
         layout.grid_label,
         Align::Left,
-        VAlign::Top,
+        VAlign::Center,
     );
     let field_radius = theme::FIELD_RADIUS * scale;
     for row in 0..state.dimension.min(3) {

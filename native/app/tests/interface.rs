@@ -13,7 +13,7 @@ use sistemas_lineares::graph;
 use sistemas_lineares::icons::Icon;
 use sistemas_lineares::layout::d;
 use sistemas_lineares::model;
-use sistemas_lineares::theme::{self, Color};
+use sistemas_lineares::theme::{self, Color, Font};
 use sistemas_lineares::window::{system_colors, system_high_contrast};
 use sistemas_lineares::{Button, Launch, diagnostics, force_high_contrast, pump};
 use sistemas_lineares_core::Method;
@@ -24,24 +24,25 @@ use windows::Win32::Graphics::Gdi::{
     LOGBRUSH, ReleaseDC, SelectObject, TEXTMETRICW,
 };
 use windows::Win32::System::Com::{
-    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+    CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, IDispatch,
 };
 use windows::Win32::System::Threading::GetCurrentProcessId;
-use windows::Win32::System::Variant::VT_I4;
+use windows::Win32::System::Variant::{VARIANT, VT_DISPATCH, VT_I4, VariantClear};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, HWINEVENTHOOK, IUIAutomation, SetWinEventHook, UIA_LiveSettingPropertyId,
-    UnhookWinEvent,
+    AccessibleChildren, AccessibleObjectFromWindow, CUIAutomation, HWINEVENTHOOK, IAccessible,
+    IUIAutomation, SetWinEventHook, UIA_LiveSettingPropertyId, UnhookWinEvent,
+    WindowFromAccessibleObject,
 };
 use windows::Win32::UI::Controls::{
     EM_GETLIMITTEXT, EM_GETMARGINS, EM_SETSEL, TTF_IDISHWND, TTM_GETTEXTW, TTTOOLINFOW,
     WM_MOUSELEAVE,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyboardState, SetFocus, SetKeyboardState, VK_BACK, VK_CONTROL, VK_ESCAPE, VK_RETURN,
-    VK_SPACE,
+    GetKeyboardState, SetFocus, SetKeyboardState, VK_BACK, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_LEFT,
+    VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::PWSTR;
+use windows::core::{Interface, PWSTR};
 
 fn face_e_altura(hwnd: HWND) -> (String, i32) {
     unsafe {
@@ -252,14 +253,14 @@ fn ordem_do_tab_e_circular() {
     let esperado = vec![
         h.two,
         h.three,
+        h.example,
+        h.clear,
         h.inputs[0][0],
         h.inputs[0][1],
         h.inputs[0][3],
         h.inputs[1][0],
         h.inputs[1][1],
         h.inputs[1][3],
-        h.example,
-        h.clear,
         h.links[0],
         h.links[1],
         h.links[2],
@@ -284,6 +285,8 @@ fn ordem_do_tab_e_circular() {
     let esperado3 = vec![
         h.two,
         h.three,
+        h.example,
+        h.clear,
         h.inputs[0][0],
         h.inputs[0][1],
         h.inputs[0][2],
@@ -296,8 +299,6 @@ fn ordem_do_tab_e_circular() {
         h.inputs[2][1],
         h.inputs[2][2],
         h.inputs[2][3],
-        h.example,
-        h.clear,
         h.think,
         h.copy,
         h.links[0],
@@ -307,6 +308,345 @@ fn ordem_do_tab_e_circular() {
         h.two,
     ];
     assert_eq!(tres, esperado3, "Tab no 3x3 com Copiar habilitado");
+    fechar(&h);
+}
+
+fn dicas_de_foco_visiveis(hwnd: HWND) -> bool {
+    let estado = unsafe { SendMessageW(hwnd, WM_QUERYUISTATE, None, None) }.0 as u32;
+    estado & UISF_HIDEFOCUS == 0
+}
+
+fn esconder_dicas_de_foco(h: &sistemas_lineares::Handles) {
+    unsafe {
+        SendMessageW(
+            h.main,
+            WM_CHANGEUISTATE,
+            Some(WPARAM(
+                (UIS_SET as usize) | ((UISF_HIDEFOCUS as usize) << 16),
+            )),
+            None,
+        );
+    }
+    pump(h.main);
+}
+
+fn focar(h: &sistemas_lineares::Handles, alvo: HWND) {
+    unsafe {
+        let _ = SetFocus(Some(alvo));
+    }
+    pump(h.main);
+}
+
+#[test]
+fn tab_e_setas_seguem_a_ordem_visual_do_card() {
+    let h = janela();
+    let visual = [h.two, h.three, h.example, h.clear, h.inputs[0][0]];
+    let nomes = ["2 × 2", "3 × 3", "Usar exemplo", "Limpar", "primeiro campo"];
+    focar(&h, h.two);
+    for (indice, par) in visual.windows(2).enumerate() {
+        tecla(&h, par[0], VK_TAB);
+        assert_eq!(
+            foco(),
+            par[1],
+            "Tab de {} vai para {}",
+            nomes[indice],
+            nomes[indice + 1]
+        );
+    }
+    for (indice, par) in visual.windows(2).enumerate().rev() {
+        com_teclas(&[VK_SHIFT], || tecla(&h, par[1], VK_TAB));
+        assert_eq!(
+            foco(),
+            par[0],
+            "Shift+Tab de {} volta para {}",
+            nomes[indice + 1],
+            nomes[indice]
+        );
+    }
+    for (seta, simbolo) in [(VK_RIGHT, "→"), (VK_DOWN, "↓")] {
+        for (indice, par) in visual.windows(2).enumerate() {
+            focar(&h, par[0]);
+            esconder_dicas_de_foco(&h);
+            tecla(&h, par[0], seta);
+            assert_eq!(
+                foco(),
+                par[1],
+                "{simbolo} em {} vai para {}",
+                nomes[indice],
+                nomes[indice + 1]
+            );
+            assert!(
+                dicas_de_foco_visiveis(par[1]),
+                "a seta mostra o anel de foco em {}",
+                nomes[indice + 1]
+            );
+        }
+    }
+    for (seta, simbolo) in [(VK_LEFT, "←"), (VK_UP, "↑")] {
+        for (indice, par) in visual[..4].windows(2).enumerate() {
+            focar(&h, par[1]);
+            tecla(&h, par[1], seta);
+            assert_eq!(
+                foco(),
+                par[0],
+                "{simbolo} em {} volta para {}",
+                nomes[indice + 1],
+                nomes[indice]
+            );
+        }
+    }
+    focar(&h, h.inputs[0][0]);
+    tecla(&h, h.inputs[0][0], VK_DOWN);
+    assert_eq!(foco(), h.inputs[1][0], "seta para baixo muda de equação");
+    tecla(&h, h.inputs[1][0], VK_UP);
+    assert_eq!(foco(), h.inputs[0][0], "seta para cima volta de equação");
+    tecla(&h, h.inputs[0][0], VK_RIGHT);
+    assert_eq!(foco(), h.inputs[0][0], "seta lateral fica no campo");
+    tecla(&h, h.inputs[0][0], VK_RETURN);
+    assert_eq!(foco(), h.inputs[0][1], "Enter vai ao próximo campo vazio");
+    clicar(&h, Button::Three);
+    focar(&h, h.clear);
+    tecla(&h, h.clear, VK_TAB);
+    assert_eq!(
+        foco(),
+        h.inputs[0][0],
+        "no 3×3, Limpar também leva ao primeiro campo"
+    );
+    fechar(&h);
+}
+
+fn caixa_de_tinta(
+    imagem: &Imagem,
+    regiao: sistemas_lineares::layout::Rect,
+) -> Option<(i32, i32, i32, i32)> {
+    let mut caixa: Option<(i32, i32, i32, i32)> = None;
+    for y in regiao.y..regiao.bottom() {
+        for x in regiao.x..regiao.right() {
+            if distancia(imagem.cor(x, y), theme::MUTED) < 60 {
+                caixa = Some(match caixa {
+                    None => (x, y, x, y),
+                    Some((esquerda, topo, direita, base)) => {
+                        (esquerda.min(x), topo.min(y), direita.max(x), base.max(y))
+                    }
+                });
+            }
+        }
+    }
+    caixa
+}
+
+fn base_do_primeiro_algarismo(imagem: &Imagem, caixa: (i32, i32, i32, i32), largura: i32) -> i32 {
+    (caixa.1..=caixa.3)
+        .filter(|y| {
+            imagem.conta((caixa.0, *y, caixa.0 + largura, *y + 1), |cor| {
+                distancia(cor, theme::MUTED) < 60
+            }) > 0
+        })
+        .max()
+        .unwrap_or(caixa.3)
+}
+
+#[test]
+fn botoes_na_linha_do_seletor_e_dimensao_alinhada_a_direita() {
+    for (nome, gdi) in [("Direct2D", false), ("GDI", true)] {
+        let h = if gdi { janela_gdi() } else { janela() };
+        let estado = diagnostics(h.main).expect("diagnóstico");
+        let layout = estado.layout;
+        let escala = estado.dpi as f32 / 96.0;
+        for (hwnd, rect, rotulo) in [
+            (h.example, layout.example, "Usar exemplo"),
+            (h.clear, layout.clear, "Limpar"),
+            (h.dimension, layout.dimension_text, "dimensão"),
+        ] {
+            assert!(visivel(hwnd), "{nome}: {rotulo} visível");
+            assert_eq!(
+                retangulo_no_canvas(&h, hwnd),
+                rect,
+                "{nome}: {rotulo} no retângulo do layout"
+            );
+        }
+        let trilho = layout.size_track;
+        for (rect, rotulo) in [(layout.example, "Usar exemplo"), (layout.clear, "Limpar")] {
+            assert!(
+                rect.y < trilho.bottom() && trilho.y < rect.bottom(),
+                "{nome}: {rotulo} na linha do seletor"
+            );
+        }
+        assert_eq!(texto(h.dimension), "2 equações · 2 incógnitas");
+        let metrica = if gdi {
+            GdiResources::new(estado.dpi).text_metrics(Font::Small)
+        } else {
+            Engine::new(estado.dpi)
+                .expect("motor de desenho")
+                .text_metrics(Font::Small)
+        };
+        let imagem = capturar(h.main);
+        let regiao = layout.dimension_text;
+        let dimensao = caixa_de_tinta(&imagem, regiao).expect("dimensão desenhada");
+        let rotulo = caixa_de_tinta(&imagem, layout.grid_label).expect("rótulo desenhado");
+        let folga = d(escala, 10);
+        assert!(
+            dimensao.2 >= regiao.right() - folga && dimensao.2 < regiao.right(),
+            "{nome}: dimensão encostada à direita: tinta {dimensao:?} em {regiao:?}"
+        );
+        assert!(
+            dimensao.0 >= regiao.x + d(escala, 30),
+            "{nome}: dimensão não fica à esquerda: tinta {dimensao:?} em {regiao:?}"
+        );
+        assert!(
+            layout.clear.right() - dimensao.2 <= folga,
+            "{nome}: a dimensão termina alinhada com Limpar"
+        );
+        let base = base_do_primeiro_algarismo(&imagem, dimensao, d(escala, 4));
+        let esperada = regiao.y + regiao.h / 2 - metrica.height / 2 + metrica.ascent - 1;
+        assert!(
+            (base - esperada).abs() <= 1,
+            "{nome}: dimensão centralizada na vertical: base {base}, esperada {esperada}"
+        );
+        assert!(
+            (rotulo.3 - base).abs() <= 1,
+            "{nome}: rótulo dos coeficientes e dimensão na mesma linha de base ({} e {base})",
+            rotulo.3
+        );
+        assert!(
+            rotulo.2 < dimensao.0,
+            "{nome}: o rótulo não encosta na dimensão"
+        );
+        clicar(&h, Button::Three);
+        assert_eq!(texto(h.dimension), "3 equações · 3 incógnitas");
+        let tres = caixa_de_tinta(&capturar(h.main), regiao).expect("dimensão do 3×3");
+        assert!(
+            (tres.2 - dimensao.2).abs() <= 1,
+            "{nome}: no 3×3 a dimensão continua à direita ({tres:?})"
+        );
+        fechar(&h);
+    }
+}
+
+fn janela_de(objeto: &IAccessible) -> HWND {
+    let mut hwnd = HWND::default();
+    let _ = unsafe { WindowFromAccessibleObject(objeto, Some(&mut hwnd)) };
+    hwnd
+}
+
+fn filhos_msaa(janela: HWND) -> Vec<HWND> {
+    let mut bruto = std::ptr::null_mut();
+    let objeto = unsafe {
+        AccessibleObjectFromWindow(janela, OBJID_CLIENT.0 as u32, &IAccessible::IID, &mut bruto)
+    }
+    .ok()
+    .and_then(|_| (!bruto.is_null()).then(|| unsafe { IAccessible::from_raw(bruto) }));
+    let Some(objeto) = objeto else {
+        return Vec::new();
+    };
+    let total = unsafe { objeto.accChildCount() }.unwrap_or(0).max(0) as usize;
+    let mut filhos: Vec<VARIANT> = (0..total).map(|_| VARIANT::default()).collect();
+    let mut obtidos = 0;
+    let _ = unsafe { AccessibleChildren(&objeto, 0, &mut filhos, &mut obtidos) };
+    let mut janelas = Vec::new();
+    for filho in filhos.iter_mut().take(obtidos.max(0) as usize) {
+        unsafe {
+            if filho.Anonymous.Anonymous.vt == VT_DISPATCH {
+                let despacho: Option<IDispatch> =
+                    (*filho.Anonymous.Anonymous.Anonymous.pdispVal).clone();
+                if let Some(acessivel) = despacho.and_then(|item| item.cast::<IAccessible>().ok()) {
+                    janelas.push(janela_de(&acessivel));
+                }
+            }
+            let _ = VariantClear(filho);
+        }
+    }
+    janelas
+}
+
+fn filhos_uia(h: &sistemas_lineares::Handles, janela: HWND) -> Option<Vec<isize>> {
+    let alvo = janela.0 as isize;
+    let concluido = Arc::new(AtomicBool::new(false));
+    let sinal = concluido.clone();
+    let (envio, recebe) = mpsc::channel();
+    let trabalhador = std::thread::spawn(move || {
+        let resultado = unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let servico: windows::core::Result<IUIAutomation> =
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER);
+            servico.ok().and_then(|servico| {
+                let raiz = servico.ElementFromHandle(HWND(alvo as *mut _)).ok()?;
+                let caminhante = servico.RawViewWalker().ok()?;
+                let mut lista = Vec::new();
+                let mut atual = caminhante.GetFirstChildElement(&raiz).ok();
+                while let Some(elemento) = atual {
+                    if let Ok(hwnd) = elemento.CurrentNativeWindowHandle() {
+                        lista.push(hwnd.0 as isize);
+                    }
+                    atual = caminhante.GetNextSiblingElement(&elemento).ok();
+                }
+                Some(lista)
+            })
+        };
+        let _ = envio.send(resultado);
+        sinal.store(true, Ordering::SeqCst);
+    });
+    let limite = Instant::now() + Duration::from_secs(15);
+    while !concluido.load(Ordering::SeqCst) && Instant::now() < limite {
+        pump(h.main);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let resultado = recebe.recv_timeout(Duration::from_secs(1)).ok().flatten();
+    let _ = trabalhador.join();
+    resultado
+}
+
+fn posicoes(lista: &[isize], alvos: &[HWND]) -> Vec<Option<usize>> {
+    alvos
+        .iter()
+        .map(|alvo| lista.iter().position(|item| *item == alvo.0 as isize))
+        .collect()
+}
+
+#[test]
+fn leitor_de_tela_percorre_o_card_na_ordem_visual() {
+    let h = janela();
+    let alvos = [
+        h.two,
+        h.three,
+        h.example,
+        h.clear,
+        h.dimension,
+        h.inputs[0][0],
+        h.inputs[0][1],
+        h.inputs[1][3],
+        h.graph,
+        h.helper,
+    ];
+    let msaa: Vec<isize> = filhos_msaa(h.canvas)
+        .into_iter()
+        .map(|hwnd| hwnd.0 as isize)
+        .collect();
+    let ordem = posicoes(&msaa, &alvos);
+    assert!(
+        ordem.iter().all(Option::is_some),
+        "MSAA expõe todos os controles do card: {ordem:?}"
+    );
+    assert!(
+        ordem.windows(2).all(|par| par[0] < par[1]),
+        "MSAA na ordem visual: seletor, Usar exemplo, Limpar, dimensão, campos, gráfico ({ordem:?})"
+    );
+    match filhos_uia(&h, h.canvas) {
+        Some(uia) => {
+            let ordem = posicoes(&uia, &alvos);
+            assert!(
+                ordem.iter().all(Option::is_some),
+                "UI Automation expõe todos os controles do card: {ordem:?}"
+            );
+            assert!(
+                ordem.windows(2).all(|par| par[0] < par[1]),
+                "UI Automation na ordem visual ({ordem:?})"
+            );
+        }
+        None => eprintln!(
+            "aviso: UI Automation indisponível neste ambiente; ordem conferida só pelo MSAA"
+        ),
+    }
     fechar(&h);
 }
 
@@ -1007,8 +1347,14 @@ fn reativar_devolve_o_foco() {
 #[test]
 fn hover_cursor_de_mao_e_foco_so_pelo_teclado() {
     let h = janela();
+    let exemplo = diagnostics(h.main).expect("diagnóstico").layout.example;
+    assert_eq!(
+        posicao_no_canvas(&h, h.example),
+        exemplo,
+        "Usar exemplo no retângulo do layout"
+    );
     let antes = capturar(h.main);
-    let ponto = (58 + 6, 667 + 21);
+    let ponto = (exemplo.x + 6, exemplo.y + 21);
     assert_eq!(
         antes.cor(ponto.0, ponto.1),
         theme::SURFACE,
@@ -1073,11 +1419,8 @@ fn hover_cursor_de_mao_e_foco_so_pelo_teclado() {
         let _ = SetFocus(Some(h.example));
     }
     pump(h.main);
-    let anel = |imagem: &Imagem| {
-        imagem.conta((58, 667, 58 + 155, 667 + 42), |cor| {
-            distancia(cor, theme::ACCENT) < 40
-        })
-    };
+    let anel =
+        |imagem: &Imagem| imagem.conta(area(exemplo), |cor| distancia(cor, theme::ACCENT) < 40);
     let sem_teclado = anel(&capturar(h.main));
     if dicas.as_bool() {
         eprintln!(

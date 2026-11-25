@@ -9,8 +9,9 @@ use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyWindow, GetClientRect, GetWindowRect, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
-    SendMessageW, SetWindowPos, UIS_CLEAR, UISF_HIDEFOCUS, WM_CHANGEUISTATE, WM_TIMER,
+    DestroyWindow, GetClientRect, GetWindowRect, SB_BOTTOM, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOZORDER, SendMessageW, SetWindowPos, UIS_CLEAR, UISF_HIDEFOCUS, WM_CHANGEUISTATE,
+    WM_TIMER, WM_VSCROLL,
 };
 
 fn idle(main: HWND) {
@@ -66,6 +67,34 @@ fn resize_client(main: HWND, width: i32, height: i32) -> windows::core::Result<(
     }
     pump(main);
     Ok(())
+}
+
+fn resize_window(main: HWND, width: i32, height: i32) -> windows::core::Result<()> {
+    unsafe {
+        SetWindowPos(
+            main,
+            None,
+            0,
+            0,
+            width,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        )?;
+    }
+    pump(main);
+    Ok(())
+}
+
+fn scroll_to_bottom(main: HWND) {
+    unsafe {
+        SendMessageW(
+            main,
+            WM_VSCROLL,
+            Some(WPARAM(SB_BOTTOM.0 as usize)),
+            Some(LPARAM(0)),
+        );
+    }
+    pump(main);
 }
 
 fn full_page(handles: &Handles, directory: &Path, name: &str) -> windows::core::Result<()> {
@@ -171,6 +200,14 @@ fn main() -> windows::core::Result<()> {
     click(&handles, Button::Three);
     click(&handles, Button::Example);
     snap(main, &directory, "08-exemplo-3x3-resolvido")?;
+    resize_window(main, 1352, 798)?;
+    snap(main, &directory, "08a-janela-do-usuario-3x3")?;
+    keyboard_cues(main, true);
+    focus(main, handles.clear);
+    snap(main, &directory, "08b-janela-do-usuario-foco-em-limpar")?;
+    focus(main, handles.inputs[0][0]);
+    keyboard_cues(main, false);
+    resize_client(main, 1160, 810)?;
     click(&handles, Button::Think);
     click(&handles, Button::MethodCramer);
     full_page(&handles, &directory, "09-modo-pensar-cramer-3x3")?;
@@ -208,7 +245,7 @@ fn main() -> windows::core::Result<()> {
     );
     snap(main, &directory, "15a-legenda-longa-3x3")?;
     resize_client(main, 1057, 800)?;
-    snap(main, &directory, "15b-legenda-longa-com-reticencias")?;
+    snap(main, &directory, "15b-legenda-longa-janela-estreita")?;
     resize_client(main, 1160, 810)?;
     click(&handles, Button::Clear);
     click(&handles, Button::Two);
@@ -225,26 +262,18 @@ fn main() -> windows::core::Result<()> {
     snap(main, &directory, "20-infinitas-2x2")?;
     write(&handles, 1, 3, "5");
     snap(main, &directory, "20a-sem-solucao-2x2")?;
-    unsafe {
-        SetWindowPos(
-            main,
-            None,
-            0,
-            0,
-            640,
-            480,
-            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-        )?
-    };
-    pump(main);
+    resize_window(main, 640, 480)?;
     click(&handles, Button::Three);
     snap(main, &directory, "21-janela-minima-3x3")?;
-    focus(main, handles.example);
-    snap(main, &directory, "21a-janela-minima-legenda-sem-painel")?;
+    scroll_to_bottom(main);
+    snap(main, &directory, "21a-janela-minima-3x3-com-painel")?;
+    click(&handles, Button::Example);
+    scroll_to_bottom(main);
+    snap(main, &directory, "21b-janela-minima-3x3-resolvido")?;
     click(&handles, Button::Two);
     click(&handles, Button::Example);
-    focus(main, handles.example);
-    snap(main, &directory, "21b-janela-minima-2x2-com-painel")?;
+    scroll_to_bottom(main);
+    snap(main, &directory, "21c-janela-minima-2x2-com-painel")?;
     click(&handles, Button::Three);
     focus(main, handles.inputs[0][0]);
     click(&handles, Button::Example);

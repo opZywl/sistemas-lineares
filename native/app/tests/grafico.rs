@@ -10,7 +10,7 @@ use comum::*;
 use sistemas_lineares::fonts::{self, TextMetrics};
 use sistemas_lineares::gfx::{self, Align, Engine, PlacedLine, VAlign, dot_centers};
 use sistemas_lineares::graph::{self, Anchor, Ink, Item, Motion, Pt, Shape, Sketch};
-use sistemas_lineares::layout::{Rect, dpi_scale};
+use sistemas_lineares::layout::{Rect, d, dpi_scale};
 use sistemas_lineares::model::{self, Model};
 use sistemas_lineares::plot;
 use sistemas_lineares::text::wrap;
@@ -20,17 +20,19 @@ use sistemas_lineares::{
     Button, Diagnostics, Handles, Launch, Renderer, diagnostics, force_animations,
     force_high_contrast, pump,
 };
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, ROLE_SYSTEM_GRAPHIC, UIA_ImageControlTypeId,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::{SetFocus, VK_RETURN};
+use windows::Win32::UI::HiDpi::AdjustWindowRectExForDpi;
+use windows::Win32::UI::Input::KeyboardAndMouse::VK_RETURN;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, GetWindowRect, IsIconic, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOZORDER, SetWindowPos, ShowWindow,
+    GetClientRect, GetWindowRect, IsIconic, SB_BOTTOM, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetWindowPos, ShowWindow, WM_VSCROLL,
+    WS_CLIPCHILDREN, WS_EX_CONTROLPARENT, WS_OVERLAPPEDWINDOW,
 };
 
 const LEGENDA_2X2: &str = "As retas se cruzam em (2, 1): esse ponto é a solução do sistema.";
@@ -577,7 +579,69 @@ fn alto_contraste_sem_alfa_sem_textura_e_com_cores_do_sistema() {
 }
 
 #[test]
-fn janela_baixa_sem_painel_nao_quebra_a_legenda() {
+fn sair_do_alto_contraste_durante_o_pulso_retoma_a_animacao() {
+    let h = janela_com(Launch {
+        high_contrast: Some(true),
+        animations: Some(true),
+        ..Launch::background(FORA_DA_TELA, CLIENTE)
+    });
+    let clique = Instant::now();
+    clicar(&h, Button::Example);
+    let comeco = estado(&h);
+    assert!(
+        comeco.palette.high_contrast && comeco.graph_timer && comeco.graph_busy,
+        "com alto contraste, o exemplo anima as retas e o ponto"
+    );
+    assert!(esperar_grafico(&h), "a animação com alto contraste termina");
+    let limite = clique + Duration::from_secs(1);
+    while Instant::now() < limite {
+        pump(h.main);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let parado = estado(&h);
+    assert!(
+        !parado.graph_timer && !parado.graph_busy,
+        "com alto contraste, o ponto não pulsa"
+    );
+    force_high_contrast(h.main, Some(false));
+    pump(h.main);
+    let pulsando = estado(&h);
+    assert!(!pulsando.palette.high_contrast);
+    assert!(
+        pulsando.graph_busy && pulsando.graph_timer,
+        "sem alto contraste, os pulsos que faltam voltam a animar"
+    );
+    assert!(esperar_grafico(&h), "e os pulsos terminam sozinhos");
+    let fim = estado(&h);
+    assert!(!fim.graph_timer && !fim.graph_busy);
+    assert_eq!(
+        fim.graph_scene,
+        graph::describe(&repouso(&exemplo(2).sketch(), &fim, false)),
+        "termina na cena de repouso sem alto contraste"
+    );
+    fechar(&h);
+}
+
+fn rolar_ate_o_fim(h: &Handles) {
+    unsafe {
+        SendMessageW(
+            h.main,
+            WM_VSCROLL,
+            Some(WPARAM(SB_BOTTOM.0 as usize)),
+            Some(LPARAM(0)),
+        );
+    }
+    pump(h.main);
+}
+
+fn cores_dos_planos(imagem: &Imagem, plot: Rect) -> [usize; 3] {
+    let regiao = area(plot);
+    [theme::ACCENT, theme::MINT, theme::PEACH]
+        .map(|cor| imagem.conta(regiao, |pixel| perto(pixel, cor, 60)))
+}
+
+#[test]
+fn janela_minima_tem_painel_tambem_no_3x3() {
     let h = janela_com(Launch {
         animations: Some(false),
         ..Launch::background(FORA_DA_TELA, (640, 480))
@@ -585,34 +649,38 @@ fn janela_baixa_sem_painel_nao_quebra_a_legenda() {
     clicar(&h, Button::Three);
     let atual = estado(&h);
     let layout = atual.layout;
-    assert!(layout.graph.is_empty() && layout.plot.is_empty());
-    assert!(!visivel(h.graph), "sem espaço, o gráfico some");
-    assert!(visivel(h.helper));
+    let escala = dpi_scale(atual.dpi);
+    assert!(
+        !layout.graph.is_empty(),
+        "na janela mínima, o 3×3 também tem painel"
+    );
+    assert!(
+        layout.plot.h >= d(escala, 70),
+        "plot com altura útil: {:?}",
+        layout.plot
+    );
+    assert!(layout.graph.y > layout.fields[2][3].bottom());
+    assert!(layout.graph.contains(layout.plot) && layout.graph.contains(layout.helper));
+    assert!(visivel(h.graph) && visivel(h.helper));
+    assert_eq!(posicao_no_canvas(&h, h.graph), layout.plot);
     assert_eq!(posicao_no_canvas(&h, h.helper), layout.helper);
     assert_eq!(texto(h.helper), graph::INTRO_THREE);
-    assert_eq!(atual.graph_scene, "", "nada é desenhado sem painel");
-    assert!(layout.helper.y >= layout.fields[2][3].bottom());
-    assert!(layout.helper.bottom() <= layout.example.y);
-    unsafe {
-        let _ = SetFocus(Some(h.example));
-    }
-    pump(h.main);
+    assert!(
+        !atual.graph_scene.is_empty(),
+        "o painel vazio já desenha os eixos"
+    );
+    rolar_ate_o_fim(&h);
     let rolagem = estado(&h).scroll;
     let imagem = capturar(h.main);
     let legenda = layout.helper.offset(-rolagem.0, -rolagem.1);
+    let painel = layout.graph.offset(-rolagem.0, -rolagem.1);
     assert!(
-        legenda.y >= 0 && legenda.bottom() <= imagem.altura,
-        "legenda à vista"
+        painel.y >= 0 && painel.bottom() <= imagem.altura && painel.right() <= imagem.largura,
+        "painel à vista depois de rolar: {painel:?} em {}x{}",
+        imagem.largura,
+        imagem.altura
     );
-    let mut linhas = Vec::new();
-    for y in legenda.y..legenda.bottom() {
-        let tinta = imagem.conta((legenda.x, y, legenda.right(), y + 1), |cor| {
-            perto(cor, theme::MUTED, 60)
-        });
-        if tinta > 0 {
-            linhas.push(y);
-        }
-    }
+    let linhas = linhas_com_tinta(&imagem, legenda, theme::MUTED);
     let altura = linhas
         .last()
         .zip(linhas.first())
@@ -626,18 +694,132 @@ fn janela_baixa_sem_painel_nao_quebra_a_legenda() {
             && linhas
                 .last()
                 .is_some_and(|base| *base < legenda.bottom() - 1),
-        "a legenda fica centralizada na faixa"
+        "a legenda fica centralizada no painel"
     );
     assert_eq!(
         imagem.cor(legenda.x + 1, legenda.y + 1),
-        theme::SURFACE,
-        "sem painel, a legenda usa o fundo do card"
+        theme::CANVAS,
+        "a legenda usa o fundo do painel"
     );
+    clicar(&h, Button::Example);
+    let resolvido = estado(&h);
+    let esperado = repouso(&exemplo(3).sketch(), &resolvido, false);
+    assert_eq!(resolvido.graph_scene, graph::describe(&esperado));
+    assert_eq!(texto(h.helper), LEGENDA_3X3);
+    let rolagem = resolvido.scroll;
+    let imagem = capturar(h.main);
+    let plot = layout.plot.offset(-rolagem.0, -rolagem.1);
+    for (linha, pixels) in cores_dos_planos(&imagem, plot).into_iter().enumerate() {
+        assert!(
+            pixels > 25,
+            "plano da equação {} na janela mínima ({pixels})",
+            linha + 1
+        );
+    }
     clicar(&h, Button::Two);
-    let duas = estado(&h).layout;
-    assert!(!duas.graph.is_empty(), "no 2×2 o painel cabe");
+    assert!(
+        !estado(&h).layout.graph.is_empty(),
+        "no 2×2 o painel continua"
+    );
     assert!(visivel(h.graph));
     assert_eq!(texto(h.helper), graph::INTRO_TWO);
+    fechar(&h);
+}
+
+#[test]
+fn janela_do_usuario_mostra_os_planos_no_3x3() {
+    let externo = (1352, 798);
+    let mut moldura = RECT::default();
+    unsafe {
+        let _ = AdjustWindowRectExForDpi(
+            &mut moldura,
+            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            false,
+            WS_EX_CONTROLPARENT,
+            96,
+        );
+    }
+    let cliente = (
+        externo.0 - (moldura.right - moldura.left),
+        externo.1 - (moldura.bottom - moldura.top),
+    );
+    let h = janela_com(Launch {
+        animations: Some(false),
+        ..Launch::background(FORA_DA_TELA, cliente)
+    });
+    let inicial = estado(&h);
+    if inicial.dpi == 96 {
+        let mut janela = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(h.main, &mut janela);
+        }
+        assert_eq!(
+            (janela.right - janela.left, janela.bottom - janela.top),
+            externo,
+            "mesma moldura da janela salva pelo usuário"
+        );
+    } else {
+        eprintln!(
+            "aviso: o monitor de teste está a {} dpi; a janela do usuário é de 96 dpi",
+            inicial.dpi
+        );
+    }
+    clicar(&h, Button::Three);
+    let atual = estado(&h);
+    let plot = atual.layout.plot;
+    eprintln!(
+        "janela do usuário: cliente {cliente:?}, conteúdo {}x{}, painel {:?}, plot {plot:?}",
+        atual.layout.width, atual.layout.height, atual.layout.graph
+    );
+    assert!(
+        !atual.layout.graph.is_empty(),
+        "o 3×3 tem painel na janela do usuário"
+    );
+    assert!(plot.h >= 70, "plot com {} px de altura", plot.h);
+    assert!(visivel(h.graph), "gráfico visível");
+    assert_eq!(posicao_no_canvas(&h, h.graph), plot);
+    clicar(&h, Button::Example);
+    let resolvido = estado(&h);
+    let esperado = repouso(&exemplo(3).sketch(), &resolvido, false);
+    assert_eq!(
+        resolvido.graph_scene,
+        graph::describe(&esperado),
+        "a cena desenhada é a do núcleo compartilhado"
+    );
+    let planos = esperado
+        .iter()
+        .filter(|item| {
+            matches!(item.ink, Ink::Row(_)) && matches!(item.shape, Shape::Polygon { .. })
+        })
+        .count();
+    assert_eq!(planos, 3, "três planos na cena");
+    assert_eq!(texto(h.helper), LEGENDA_3X3);
+    let imagem = capturar(h.main);
+    let visivel_na_tela = plot.offset(-resolvido.scroll.0, -resolvido.scroll.1);
+    assert!(
+        visivel_na_tela.y >= 0
+            && visivel_na_tela.bottom() <= imagem.altura
+            && visivel_na_tela.right() <= imagem.largura,
+        "plot inteiro na área cliente: {visivel_na_tela:?} em {}x{}",
+        imagem.largura,
+        imagem.altura
+    );
+    for (linha, pixels) in cores_dos_planos(&imagem, visivel_na_tela)
+        .into_iter()
+        .enumerate()
+    {
+        assert!(
+            pixels > 25,
+            "plano da equação {} desenhado ({pixels})",
+            linha + 1
+        );
+    }
+    let (x, y) = centro_do_ponto(&esperado, visivel_na_tela);
+    assert!(
+        perto(imagem.cor(x, y), theme::INK, 30),
+        "ponto da solução em ({x},{y}) {:?}",
+        imagem.cor(x, y)
+    );
     fechar(&h);
 }
 
@@ -852,13 +1034,18 @@ fn legenda_longa_do_3x3_aparece_inteira_na_janela_padrao() {
             "{frase}"
         );
         let (linhas, metrica, _) = plano_da_legenda(&h, &atual);
+        let necessarias = linhas_necessarias(&atual, &frase, metrica);
         assert!(
-            legenda.h >= 3 * metrica.height,
-            "a legenda do 3×3 ({} px) comporta três linhas de {} px",
+            necessarias >= 3,
+            "premissa: a frase longa quebra em {necessarias} linhas"
+        );
+        assert!(
+            legenda.h >= necessarias as i32 * metrica.height,
+            "a legenda do 3×3 ({} px) comporta {necessarias} linhas de {} px",
             legenda.h,
             metrica.height
         );
-        assert_eq!(linhas.len(), 3, "{linhas:?}");
+        assert_eq!(linhas.len(), necessarias, "{linhas:?}");
         let juntas: Vec<&str> = linhas.iter().map(|linha| linha.text.as_str()).collect();
         assert_eq!(
             juntas.join(" ").replace('\u{a0}', " "),
@@ -871,8 +1058,10 @@ fn legenda_longa_do_3x3_aparece_inteira_na_janela_padrao() {
             "as linhas mantêm o passo normal da fonte"
         );
         assert!(
-            linhas[0].y >= 0 && linhas[2].y + metrica.height <= legenda.h,
-            "as três linhas cabem na legenda: {linhas:?}"
+            linhas
+                .iter()
+                .all(|linha| linha.y >= 0 && linha.y + metrica.height <= legenda.h),
+            "todas as linhas cabem na legenda: {linhas:?}"
         );
         let imagem = capturar(h.main);
         let regiao = legenda.offset(-atual.scroll.0, -atual.scroll.1);
@@ -882,60 +1071,71 @@ fn legenda_longa_do_3x3_aparece_inteira_na_janela_padrao() {
             .zip(tinta.first())
             .map_or(0, |(fim, inicio)| fim - inicio);
         assert!(
-            altura >= 2 * passo,
-            "{renderer:?}: três linhas desenhadas ({altura} px de tinta)"
+            altura >= (necessarias as i32 - 1) * passo,
+            "{renderer:?}: {necessarias} linhas desenhadas ({altura} px de tinta)"
         );
         fechar(&h);
     }
 }
 
-#[test]
-fn legenda_que_nao_cabe_termina_em_reticencias_sem_perder_a_frase_acessivel() {
-    let h = janela_animada(false);
-    clicar(&h, Button::Three);
-    preencher_3x3(&h, &GRANDES);
-    redimensionar(&h, 1057, 797);
-    let atual = estado(&h);
-    assert!(!atual.layout.graph.is_empty(), "o painel continua lá");
-    let frase = texto(h.helper);
-    let (linhas, metrica, _) = plano_da_legenda(&h, &atual);
+fn linhas_necessarias(atual: &Diagnostics, frase: &str, metrica: TextMetrics) -> usize {
     let motor = Engine::new(atual.dpi).expect("motor de desenho");
     let medir = |linha: &str| motor.measure(linha, Font::Small);
     let (esquerda, direita) = sistemas_lineares::text::margins_for(metrica);
-    let disponivel = atual.layout.helper.w - esquerda - direita;
-    let necessarias = wrap(
-        &sistemas_lineares::text::keep_groups(&frase),
-        disponivel,
+    wrap(
+        &sistemas_lineares::text::keep_groups(frase),
+        atual.layout.helper.w - esquerda - direita,
         &medir,
     )
-    .len();
-    assert!(
-        necessarias > linhas.len(),
-        "premissa: a frase precisa de {necessarias} linhas e só cabem {}",
-        linhas.len()
-    );
-    let ultima = linhas.last().expect("ao menos uma linha");
-    assert!(
-        ultima.text.ends_with('\u{2026}'),
-        "a última linha visível avisa que o texto continua: {linhas:?}"
-    );
-    assert!(
-        linhas.iter().all(|linha| medir(&linha.text) <= disponivel),
-        "{linhas:?}"
-    );
-    assert!(
-        linhas
-            .iter()
-            .all(|linha| linha.y >= 0 && linha.y + metrica.height <= atual.layout.helper.h),
-        "{linhas:?}"
-    );
-    assert_eq!(
-        nome_acessivel(h.helper),
-        frase,
-        "o leitor de tela continua com a frase inteira"
-    );
-    assert_eq!(descricao_acessivel(h.graph), frase);
-    fechar(&h);
+    .len()
+}
+
+#[test]
+fn legenda_longa_cabe_inteira_ate_na_janela_minima() {
+    for cliente in [(640, 480), (1057, 797)] {
+        let h = janela_com(Launch {
+            animations: Some(false),
+            ..Launch::background(FORA_DA_TELA, cliente)
+        });
+        clicar(&h, Button::Three);
+        preencher_3x3(&h, &GRANDES);
+        let atual = estado(&h);
+        assert!(
+            !atual.layout.graph.is_empty(),
+            "{cliente:?}: o painel continua lá"
+        );
+        let frase = texto(h.helper);
+        let (linhas, metrica, _) = plano_da_legenda(&h, &atual);
+        let necessarias = linhas_necessarias(&atual, &frase, metrica);
+        assert_eq!(
+            linhas.len(),
+            necessarias,
+            "{cliente:?}: todas as linhas aparecem, sem reticências: {linhas:?}"
+        );
+        assert!(
+            linhas.iter().all(|linha| !linha.text.ends_with('\u{2026}')),
+            "{cliente:?}: {linhas:?}"
+        );
+        let juntas: Vec<&str> = linhas.iter().map(|linha| linha.text.as_str()).collect();
+        assert_eq!(
+            juntas.join(" ").replace('\u{a0}', " "),
+            frase,
+            "{cliente:?}: nenhuma palavra se perde"
+        );
+        assert!(
+            linhas
+                .iter()
+                .all(|linha| linha.y >= 0 && linha.y + metrica.height <= atual.layout.helper.h),
+            "{cliente:?}: {linhas:?}"
+        );
+        assert_eq!(
+            nome_acessivel(h.helper),
+            frase,
+            "o leitor de tela recebe a frase inteira"
+        );
+        assert_eq!(descricao_acessivel(h.graph), frase);
+        fechar(&h);
+    }
 }
 
 #[test]
@@ -1013,15 +1213,19 @@ fn temporizador_so_anda_com_o_grafico_a_vista() {
         ..Launch::background(FORA_DA_TELA, (640, 480))
     });
     clicar(&h, Button::Three);
-    assert!(estado(&h).layout.plot.is_empty());
+    assert!(
+        !estado(&h).layout.plot.is_empty(),
+        "na janela mínima, o 3×3 tem painel"
+    );
     for (coluna, valor) in ["1", "1", "1", "6"].into_iter().enumerate() {
         escrever(&h, 0, coluna, valor);
     }
-    let sem_painel = estado(&h);
+    let na_minima = estado(&h);
     assert!(
-        !sem_painel.graph_timer && !sem_painel.graph_busy,
-        "sem painel, nada anima fora de vista"
+        na_minima.graph_timer && na_minima.graph_busy,
+        "com o painel à vista, o plano novo anima"
     );
+    assert!(esperar_grafico(&h), "e a animação termina sozinha");
     fechar(&h);
 
     let h = janela_animada(true);
@@ -1048,17 +1252,20 @@ fn temporizador_so_anda_com_o_grafico_a_vista() {
     assert!(estado(&h).graph_timer, "o exemplo 3×3 anima");
     redimensionar(&h, 640, 480);
     let encolhida = estado(&h);
-    assert!(encolhida.layout.plot.is_empty() && !visivel(h.graph));
     assert!(
-        !encolhida.graph_timer,
-        "sem painel, o temporizador para mesmo no meio da animação"
+        !encolhida.layout.plot.is_empty() && visivel(h.graph),
+        "encolher até a janela mínima mantém o painel do 3×3"
+    );
+    assert_eq!(
+        encolhida.graph_timer, encolhida.graph_busy,
+        "o temporizador segue enquanto houver animação"
     );
     redimensionar(&h, CLIENTE.0, CLIENTE.1);
     let restaurada = estado(&h);
     assert!(visivel(h.graph));
     assert_eq!(
         restaurada.graph_timer, restaurada.graph_busy,
-        "com o painel de volta, o temporizador retoma enquanto houver animação"
+        "de volta ao tamanho padrão, o temporizador acompanha a animação"
     );
     assert!(esperar_grafico(&h));
 
