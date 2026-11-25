@@ -2,8 +2,17 @@
   'use strict';
   const abs = x => x < 0n ? -x : x;
   function gcd(a,b) { a=abs(a); b=abs(b); while(b) [a,b]=[b,a%b]; return a; }
-  const MAX_INPUT_LENGTH=100,MAX_EXPONENT=1000,MAX_POWER_DIGITS=300,LIVE_BUDGET_BITS=8000,PREVIEW_DIGIT_LIMIT=12;
+  const MAX_INPUT_LENGTH=100,MAX_EXPONENT=1000,MAX_POWER_DIGITS=300,LIVE_BUDGET_BITS=8000,PREVIEW_DIGIT_LIMIT=12,FLOAT_EXPONENT_LIMIT=400;
   const POWER_LIMIT_BITS=Math.ceil(MAX_POWER_DIGITS*Math.log2(10));
+  const POWERS_OF_TWO=(()=>{
+    const table=new Array(2*FLOAT_EXPONENT_LIMIT+1);
+    table[FLOAT_EXPONENT_LIMIT]=1;
+    for(let step=1;step<=FLOAT_EXPONENT_LIMIT;step++) {
+      table[FLOAT_EXPONENT_LIMIT+step]=table[FLOAT_EXPONENT_LIMIT+step-1]*2;
+      table[FLOAT_EXPONENT_LIMIT-step]=table[FLOAT_EXPONENT_LIMIT-step+1]*0.5;
+    }
+    return table;
+  })();
   const PARSE_MESSAGES=Object.freeze({
     Empty:'Preencha todos os campos.',
     TooLong:'Use números com no máximo 100 caracteres.',
@@ -57,6 +66,21 @@
     div(b) { return new Rational(this.n*b.d,this.d*b.n); }
     neg() { return new Rational(-this.n,this.d); }
     eq(b) { return this.n===b.n && this.d===b.d; }
+    abs() { return this.n<0n?new Rational(-this.n,this.d):this; }
+    cmpMagnitude(b) { const left=abs(this.n)*b.d,right=abs(b.n)*this.d; return left<right?-1:left>right?1:0; }
+    toF64() {
+      if(this.n===0n) return 0;
+      const numerator=abs(this.n),denominator=this.d;
+      const shift=64-(bitLength(numerator)-bitLength(denominator)),exponent=-shift;
+      let magnitude;
+      if(exponent>FLOAT_EXPONENT_LIMIT) magnitude=Infinity;
+      else if(exponent< -FLOAT_EXPONENT_LIMIT) magnitude=0;
+      else {
+        const quotient=shift>=0?(numerator<<BigInt(shift))/denominator:numerator/(denominator<<BigInt(-shift));
+        magnitude=Number(quotient)*POWERS_OF_TWO[exponent+FLOAT_EXPONENT_LIMIT];
+      }
+      return this.n<0n?-magnitude:magnitude;
+    }
     get zero() { return this.n===0n; }
     toString() { return this.d===1n?String(this.n):`${this.n}/${this.d}`; }
     static parse(input) {
@@ -749,7 +773,7 @@
     return out+walk.classification;
   }
   const api={Rational,ParseError,PARSE_MESSAGES,solve,format,METHODS,walkthrough,walkthroughText,matrixLines,matrixCells,
-    VARIABLES,MAX_INPUT_LENGTH,MAX_EXPONENT,MAX_POWER_DIGITS,LIVE_BUDGET_BITS,PREVIEW_DIGIT_LIMIT,
+    VARIABLES,MAX_INPUT_LENGTH,MAX_EXPONENT,MAX_POWER_DIGITS,LIVE_BUDGET_BITS,PREVIEW_DIGIT_LIMIT,FLOAT_EXPONENT_LIMIT,
     trim,isWhitespace,usesExtension,raise,looksIncomplete,withinLiveBudget,Entry,abbreviate,previewEquation,equation};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   else root.LinearSolver=api;

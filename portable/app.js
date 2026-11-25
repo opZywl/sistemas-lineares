@@ -2,6 +2,7 @@
  'use strict';
  const node=typeof module!=='undefined'&&module.exports;
  const solver=node?require('./solver.js'):root.LinearSolver;
+ const graph=node?require('./graph.js'):root.LinearGraph;
  const {Rational,ParseError,PARSE_MESSAGES,solve,format,METHODS,walkthroughText,matrixLines,matrixCells,VARIABLES,trim,usesExtension,looksIncomplete,withinLiveBudget,Entry,previewEquation,abbreviate}=solver;
 
  const TWO_LABEL='2 × 2',THREE_LABEL='3 × 3';
@@ -11,12 +12,11 @@
  const INVALID_TITLE='Confira os valores';
  const INVALID_DESCRIPTION='Um dos campos não é um número válido. A dica abaixo dos campos mostra o que corrigir.';
  const LARGE_TITLE='Números grandes';
- const LARGE_DESCRIPTION='Com números tão grandes, a conta é feita quando você pressiona Enter ou Resolver sistema.';
+ const LARGE_DESCRIPTION='Com números tão grandes, a conta é feita quando você pressiona Enter em um dos campos.';
  const ONLY_THIS_FIELD='Falta só este campo.';
  const KEYS=[['Enter','próximo campo vazio'],['↑ ↓','mudar de equação']];
  const THINK_KEYS=[['Esc','voltar']];
  const THINK_FOOTER='Operações de linha e determinantes  /  aritmética racional exata';
- const DEFAULT_HELPER='Aceita 2 · -1,5 · 3/4 · 2^3 · 10². Use 0 se a variável não aparecer.';
  const EXAMPLE_HELPER='Exemplo resolvido. Mude qualquer valor e a resposta se atualiza na hora.';
  const AUTHOR_HELPER='Abra lucas-lima.xyz no seu navegador para visitar o autor.';
  const NOTE_DEFAULT='Resultados exatos, incluindo frações.';
@@ -73,7 +73,7 @@
 
  class Model{
   constructor(){
-   this.state={dimension:2,inputs:[blankInputs(),blankInputs()],cells:[],revealed:blankFlags(),focus:null,notice:null,outcome:{kind:'empty'},stale:false,lastResult:null,note:NOTE_DEFAULT,copied:false,solved:null,method:METHODS[0].key,thinking:null,stepsCopied:false,stepsCopyFailed:false,missing:0,invalid:0,large:false,blank:true,preview:[]};
+   this.state={dimension:2,inputs:[blankInputs(),blankInputs()],cells:[],revealed:blankFlags(),focus:null,notice:null,outcome:{kind:'empty'},stale:false,lastResult:null,note:NOTE_DEFAULT,copied:false,solved:null,method:METHODS[0].key,thinking:null,stepsCopied:false,stepsCopyFailed:false,missing:0,invalid:0,large:false,blank:true,preview:[],rank:0,exact:[]};
    this.analyze(false);
   }
   dimension(){return this.state.dimension;}
@@ -122,6 +122,8 @@
    try{solution=solve(matrix);}catch(_){return;}
    const text=format(solution);
    Object.assign(state,{copied:false,stale:false,solved:matrix,thinking:null,stepsCopied:false,stepsCopyFailed:false});
+   state.rank=solution.pivots.length;
+   state.exact=solution.kind==='unique'?solution.rref.slice(0,dimension).map(row=>row?.[dimension]).filter(value=>value!==undefined):[];
    if(solution.kind==='unique'){
     state.note=NOTE_UNIQUE;
     state.outcome={kind:'unique',values:Array.from({length:dimension},(_,row)=>{const value=solution.rref[row]?.[dimension];return value===undefined?'':String(value);})};
@@ -136,7 +138,7 @@
    state.lastResult=text;
   }
   clearOutcome(){
-   Object.assign(this.state,{outcome:{kind:'empty'},stale:false,lastResult:null,note:NOTE_DEFAULT,copied:false,solved:null,thinking:null,stepsCopied:false,stepsCopyFailed:false});
+   Object.assign(this.state,{outcome:{kind:'empty'},rank:0,exact:[],stale:false,lastResult:null,note:NOTE_DEFAULT,copied:false,solved:null,thinking:null,stepsCopied:false,stepsCopyFailed:false});
   }
   settleCard(matrix,live){
    const state=this.state;
@@ -202,11 +204,47 @@
     return `Equação ${row+1}, ${termName(column)}: ${cell?.kind==='invalid'?cell.error.message:PARSE_MESSAGES.Empty}`;
    }
    const notice=this.state.notice;
-   if(!notice)return this.focusedReading()??DEFAULT_HELPER;
-   if(notice.kind==='example')return EXAMPLE_HELPER;
-   if(notice.kind==='author')return AUTHOR_HELPER;
-   if(notice.kind==='methodNeedsSystem')return METHOD_NEEDS_SYSTEM[notice.method];
-   return ONLY_THIS_FIELD;
+   if(notice?.kind==='author')return AUTHOR_HELPER;
+   if(notice?.kind==='methodNeedsSystem')return METHOD_NEEDS_SYSTEM[notice.method];
+   if(notice?.kind==='onlyThisField')return ONLY_THIS_FIELD;
+   return this.focusedReading()??graph.caption(this.sketch());
+  }
+  showsNotice(){const kind=this.state.notice?.kind;return kind==='author'||kind==='methodNeedsSystem'||kind==='onlyThisField';}
+  helperIsCaption(){return this.shownError()===null&&!this.showsNotice()&&this.focusedReading()===null;}
+  sketch(){
+   const state=this.state,dimension=state.dimension,outcome=state.outcome,rows=[];
+   for(let row=0;row<dimension;row++)rows.push(this.sketchRow(row));
+   let verdict;
+   if(state.stale||outcome.kind==='empty')verdict={kind:state.missing===0&&state.invalid===0?'waiting':'pending'};
+   else if(outcome.kind==='unique'){
+    const point=[0,0,0];
+    state.exact.slice(0,3).forEach((value,index)=>{point[index]=value.toF64();});
+    const fits=point.every(value=>Number.isFinite(value)&&Math.abs(value)<=graph.LIMIT);
+    verdict={kind:'point',at:fits?point:null,coordinates:outcome.values.map(value=>abbreviate(value))};
+   }
+   else if(outcome.kind==='infinite')verdict={kind:state.rank===0?'everything':dimension===2||state.rank===2?'line':'plane'};
+   else verdict={kind:'nothing',rank:state.rank};
+   return {dimension,rows,verdict};
+  }
+  sketchRow(row){
+   const dimension=this.state.dimension,values=[];
+   for(let column=0;column<=dimension;column++){
+    const cell=this.cell(row,inputColumn(dimension,column));
+    if(cell?.kind!=='value'){
+     let blank=true;
+     for(let other=0;other<=dimension;other++)if(trim(this.grid()[row][inputColumn(dimension,other)]))blank=false;
+     return {kind:blank?'blank':'partial'};
+    }
+    values.push(cell.value);
+   }
+   const constant=values[dimension];
+   let largest=null;
+   for(const value of values.slice(0,dimension))if(!value.zero&&(largest===null||value.cmpMagnitude(largest)>=0))largest=value;
+   if(largest===null)return constant.zero?{kind:'trivial'}:{kind:'impossible',constant:abbreviate(String(constant))};
+   const size=largest.abs(),normal=[0,0,0];
+   for(let column=0;column<dimension;column++)normal[column]=values[column].div(size).toF64();
+   const drawn=graph.plane(normal,constant.div(size).toF64());
+   return drawn?{kind:'drawn',plane:drawn}:{kind:'huge'};
   }
   focusedReading(){
    const focus=this.state.focus;
@@ -214,7 +252,7 @@
    const cell=this.cell(focus[0],focus[1]);
    return cell?.kind==='value'?reading(cell.value):null;
   }
-  helperIsReading(){return this.shownError()===null&&this.state.notice===null&&this.focusedReading()!==null;}
+  helperIsReading(){return this.shownError()===null&&!this.showsNotice()&&this.focusedReading()!==null;}
   notice(){return this.state.notice;}
   problem(row,column){const kind=this.cell(row,column)?.kind;return kind==='missing'||kind==='typing'||kind==='invalid';}
   shownError(){
@@ -433,7 +471,7 @@
  }
 
  const api={Model,spokenValue,reading,termName,accessibleInputName,accessibleValueName,sizeName,rowNumber,missingTitle,invalidSuffix,inputColumn,layoutVisible,EXAMPLES,
-  TEXTS:{TWO_LABEL,THREE_LABEL,EMPTY_TITLE,EMPTY_DESCRIPTION,MISSING_DESCRIPTION,INVALID_TITLE,INVALID_DESCRIPTION,LARGE_TITLE,LARGE_DESCRIPTION,ONLY_THIS_FIELD,KEYS,THINK_KEYS,THINK_FOOTER,DEFAULT_HELPER,EXAMPLE_HELPER,AUTHOR_HELPER,NOTE_DEFAULT,NOTE_UNIQUE,NOTE_INFINITE,NOTE_NONE,NOTE_STALE,NOTE_COPY_FAILED,COPY_LABEL,COPIED_LABEL,COPY_STEPS_LABEL,COPIED_STEPS_LABEL,COPY_STEPS_FAILED,TITLE_UNIQUE,TITLE_INFINITE,TITLE_NONE,DESCRIPTION_UNIQUE,DESCRIPTION_INFINITE,DESCRIPTION_NONE,GENERAL_NONE,SPOKEN_LIMIT,METHOD_NEEDS_SYSTEM,METHOD_LINK_NAMES}};
+  TEXTS:{TWO_LABEL,THREE_LABEL,EMPTY_TITLE,EMPTY_DESCRIPTION,MISSING_DESCRIPTION,INVALID_TITLE,INVALID_DESCRIPTION,LARGE_TITLE,LARGE_DESCRIPTION,ONLY_THIS_FIELD,KEYS,THINK_KEYS,THINK_FOOTER,EXAMPLE_HELPER,AUTHOR_HELPER,NOTE_DEFAULT,NOTE_UNIQUE,NOTE_INFINITE,NOTE_NONE,NOTE_STALE,NOTE_COPY_FAILED,COPY_LABEL,COPIED_LABEL,COPY_STEPS_LABEL,COPIED_STEPS_LABEL,COPY_STEPS_FAILED,TITLE_UNIQUE,TITLE_INFINITE,TITLE_NONE,DESCRIPTION_UNIQUE,DESCRIPTION_INFINITE,DESCRIPTION_NONE,GENERAL_NONE,SPOKEN_LIMIT,METHOD_NEEDS_SYSTEM,METHOD_LINK_NAMES}};
  if(node){module.exports=api;return;}
  if(typeof document==='undefined'||typeof BigInt==='undefined')return;
 
@@ -447,16 +485,149 @@
   const text=String(value);
   if(item.getAttribute(name)!==text)item.setAttribute(name,text);
  };
- const icon=name=>{const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),use=document.createElementNS('http://www.w3.org/2000/svg','use');svg.setAttribute('aria-hidden','true');use.setAttribute('href',`#icon-${name}`);svg.append(use);return svg;};
- const reducedMotion=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const SVG_NS='http://www.w3.org/2000/svg';
+ const icon=name=>{const svg=document.createElementNS(SVG_NS,'svg'),use=document.createElementNS(SVG_NS,'use');svg.setAttribute('aria-hidden','true');use.setAttribute('href',`#icon-${name}`);svg.append(use);return svg;};
+ const query=text=>typeof matchMedia==='function'?matchMedia(text):null;
+ const reducedQuery=query('(prefers-reduced-motion: reduce)'),contrastQuery=query('(forced-colors: active)');
+ const reducedMotion=()=>!!reducedQuery&&reducedQuery.matches;
+ const forcedColors=()=>!!contrastQuery&&contrastQuery.matches;
+ const onMediaChange=(list,handler)=>{if(!list)return;if(list.addEventListener)list.addEventListener('change',handler);else if(list.addListener)list.addListener(handler);};
  const readMethod=()=>{try{const key=localStorage.getItem(STORAGE);if(METHODS.some(item=>item.key===key))return key;}catch(_){}return METHODS[0].key;};
  const saveMethod=key=>{try{localStorage.setItem(STORAGE,key);}catch(_){}};
  model.setMethod(readMethod());
 
- const help=$('help'),output=$('output'),live=$('live'),solution=$('solution');
+ const help=$('help'),output=$('output'),live=$('live'),solution=$('solution'),figure=$('graph'),plot=$('plot');
  const inputs=[],fields=[],numbers=[],operators=[],rows=[];
  let composing=null,idleTimer=0,lastAnnounced=null,shownErrors=new Set(),cardKey='',cardKind='',liveToggle=false,opener=null,hoveredMethod=null,focusedMethod=null,fitFrame=0;
 
+ const motion=new graph.Motion(),clock=()=>performance.now()/1000;
+ const ROUND_INKS=new Set(['r0','r1','r2','m','u','s']);
+ const TAGS={dots:'rect',segment:'line',polygon:'polygon',outline:'polygon',disc:'circle',ring:'circle',text:'text'};
+ const svgNode=tag=>document.createElementNS(SVG_NS,tag);
+ const fixed=value=>String(Math.round(value*100)/100);
+ const pointList=points=>points.map(point=>`${fixed(point.x)},${fixed(point.y)}`).join(' ');
+ const written=new WeakMap(),widths=new Map(),painted=[],tiles=[];
+ const tileStore=svgNode('defs'),layer=svgNode('g');
+ let graphFrame=0,ruler,capHeight=8.4;
+ plot.append(tileStore,layer);
+ function setAttributes(target,values){
+  let cache=written.get(target);
+  if(!cache){cache={};written.set(target,cache);}
+  for(const name in values){
+   const value=values[name];
+   if(cache[name]!==value){cache[name]=value;target.setAttribute(name,value);}
+  }
+ }
+ function textWidth(text){
+  if(ruler===undefined){
+   const context=document.createElement('canvas').getContext?.('2d')??null;
+   ruler=context;
+   if(context){
+    context.font=`12px ${getComputedStyle(plot).fontFamily}`;
+    const height=context.measureText('0123456789').actualBoundingBoxAscent;
+    if(height>0&&height<12)capHeight=height;
+   }
+  }
+  let width=widths.get(text);
+  if(width===undefined){
+   width=ruler?ruler.measureText(text).width:Array.from(text).length*graph.CHAR_WIDTH;
+   widths.set(text,width);
+  }
+  return width;
+ }
+ function placeText(shape,width,height){
+  const wide=textWidth(shape.text),tall=graph.TEXT_HEIGHT;
+  const left=shape.horizontal==='s'?shape.at.x:shape.horizontal==='m'?shape.at.x-wide/2:shape.at.x-wide;
+  const top=shape.vertical==='s'?shape.at.y:shape.vertical==='m'?shape.at.y-tall/2:shape.at.y-tall;
+  const x=Math.max(0,Math.min(left,width-wide)),y=Math.max(0,Math.min(top,height-tall));
+  return {x,y:y+(tall+capHeight)/2};
+ }
+ function paintTile(index,shape,color,alpha){
+  let tile=tiles[index];
+  if(!tile){
+   tile=svgNode('pattern');
+   tile.id=`graph-dots-${index}`;
+   tile.setAttribute('patternUnits','userSpaceOnUse');
+   tile.append(svgNode('circle'));
+   tileStore.append(tile);
+   tiles.push(tile);
+  }
+  const spacing=fixed(shape.spacing),middle=fixed(shape.spacing/2);
+  setAttributes(tile,{width:spacing,height:spacing});
+  setAttributes(tile.firstChild,{cx:middle,cy:middle,r:fixed(shape.radius),fill:color,'fill-opacity':alpha});
+  return tile.id;
+ }
+ function paintGraph(now){
+  const box=plot.getBoundingClientRect(),contrast=forcedColors();
+  const items=motion.scene(now,box.width,box.height,1,contrast);
+  let patterns=0;
+  items.forEach((entry,index)=>{
+   const shape=entry.shape,tag=TAGS[shape.kind],color=graph.inkColor(entry.ink,contrast),alpha=fixed(entry.alpha);
+   let target=painted[index];
+   if(!target||target.localName!==tag){
+    const fresh=svgNode(tag);
+    if(target)target.replaceWith(fresh);
+    else layer.append(fresh);
+    target=painted[index]=fresh;
+   }
+   switch(shape.kind){
+    case 'dots':{
+     const reach=size=>Math.max(0,Math.floor((size-shape.spacing/2-shape.radius)/shape.spacing)+1)*shape.spacing;
+     setAttributes(target,{x:'0',y:'0',width:fixed(reach(box.width)),height:fixed(reach(box.height)),fill:`url(#${paintTile(patterns++,shape,color,alpha)})`});
+     break;
+    }
+    case 'segment':
+     setAttributes(target,{x1:fixed(shape.from.x),y1:fixed(shape.from.y),x2:fixed(shape.to.x),y2:fixed(shape.to.y),stroke:color,'stroke-opacity':alpha,'stroke-width':fixed(shape.width),'stroke-linecap':ROUND_INKS.has(entry.ink)?'round':'butt'});
+     break;
+    case 'polygon':
+     setAttributes(target,{points:pointList(shape.points),fill:color,'fill-opacity':alpha,stroke:'none','stroke-opacity':'1','stroke-width':'0','stroke-linejoin':'round'});
+     break;
+    case 'outline':
+     setAttributes(target,{points:pointList(shape.points),fill:'none','fill-opacity':'1',stroke:color,'stroke-opacity':alpha,'stroke-width':fixed(shape.width),'stroke-linejoin':'round'});
+     break;
+    case 'disc':
+     setAttributes(target,{cx:fixed(shape.center.x),cy:fixed(shape.center.y),r:fixed(shape.radius),fill:color,'fill-opacity':alpha,stroke:'none','stroke-opacity':'1','stroke-width':'0'});
+     break;
+    case 'ring':
+     setAttributes(target,{cx:fixed(shape.center.x),cy:fixed(shape.center.y),r:fixed(shape.radius),fill:'none','fill-opacity':'1',stroke:color,'stroke-opacity':alpha,'stroke-width':fixed(shape.width)});
+     break;
+    default:{
+     const place=placeText(shape,box.width,box.height);
+     setAttributes(target,{x:fixed(place.x),y:fixed(place.y),fill:color,'fill-opacity':alpha});
+     if(target.textContent!==shape.text)target.textContent=shape.text;
+    }
+   }
+  });
+  while(painted.length>items.length)painted.pop().remove();
+  while(tiles.length>patterns)tiles.pop().remove();
+ }
+ function drawGraph(){
+  if(graphFrame){cancelAnimationFrame(graphFrame);graphFrame=0;}
+  const now=clock();
+  paintGraph(now);
+  if(!reducedMotion()&&motion.busy(now,forcedColors())&&plot.getClientRects().length)graphFrame=requestAnimationFrame(drawGraph);
+ }
+ function refreshGraph(){
+  const animate=!reducedMotion();
+  figure.classList.toggle('three',model.dimension()===3);
+  motion.update(model.sketch(),clock(),animate);
+  if(!animate)motion.settle();
+  if(!graphFrame)drawGraph();
+ }
+ const repaintGraph=()=>{if(!graphFrame)drawGraph();};
+ if(typeof ResizeObserver==='function')new ResizeObserver(repaintGraph).observe(plot);
+ else window.addEventListener('resize',repaintGraph);
+ onMediaChange(reducedQuery,()=>{if(reducedMotion())motion.settle();drawGraph();});
+ onMediaChange(contrastQuery,repaintGraph);
+ document.fonts?.ready?.then(()=>{ruler=undefined;widths.clear();repaintGraph();});
+
+ const KEEP_LIMIT=16,WRAP_LIMIT=22;
+ const wrapped=word=>word.length>WRAP_LIMIT?word.split('/').flatMap((piece,index,pieces)=>index<pieces.length-1?[`${piece}/`,element('wbr')]:[piece]):[word];
+ function setCaption(text){
+  if(help.textContent===text)return;
+  const parts=text.split(/(\([^()]+\)|\S+ = \S+)/).flatMap((part,index)=>index%2&&part.length<=KEEP_LIMIT?[element('span','keep',part)]:part.split(/(\s+)/).flatMap(wrapped));
+  help.replaceChildren(...parts.filter(part=>part!==''));
+ }
  function speak(text){
   if(!text)return;
   liveToggle=!liveToggle;
@@ -677,7 +848,7 @@
     setText(operators[row][column],column+1===dimension?'=':'+');
    }
   }
-  setText(help,model.helper());
+  setCaption(model.helper());
   help.classList.toggle('error',model.helperIsError());
   help.classList.toggle('reading',model.helperIsReading());
   renderCard();
@@ -687,6 +858,7 @@
   setText($('copy-label'),model.copyLabel());
   renderSummary();
   renderFooter();
+  refreshGraph();
  }
  async function copyText(value){
   try{if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(value);return true;}}catch(_){}
@@ -826,13 +998,7 @@
  buildFields();
  $('size2').addEventListener('click',()=>changeDimension(2));
  $('size3').addEventListener('click',()=>changeDimension(3));
- $('system-form').addEventListener('submit',event=>{
-  event.preventDefault();
-  stopIdle();
-  const focus=model.solve();
-  if(focus){update();focusField(focus);return;}
-  update([resultAnnouncement()]);
- });
+ $('system-form').addEventListener('submit',event=>event.preventDefault());
  $('example').addEventListener('click',()=>{
   stopIdle();
   model.fillExample();

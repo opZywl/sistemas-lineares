@@ -6,7 +6,7 @@ const font=fs.readFileSync(path.join(root,'assets/SpaceGrotesk.woff2')).toString
 const icons=['matrix','grid','arrow-right','arrow-left','external','copy','reset','sparkles','bulb'].map(name=>{
  const content=read(`assets/${name}.svg`).replace(/<svg[^>]*>/,'').replace(/<\/svg>\s*$/,'');return `<symbol id="icon-${name}" viewBox="0 0 24 24">${content}</symbol>`;
 }).join('');
-const parts={STYLE:read('portable/styles.css').replace('__FONT__',font),ICONS:`<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">${icons}</svg>`,SOLVER:read('portable/solver.js'),APP:read('portable/app.js')};
+const parts={STYLE:read('portable/styles.css').replace('__FONT__',font),ICONS:`<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">${icons}</svg>`,SOLVER:read('portable/solver.js'),GRAPH:read('portable/graph.js'),APP:read('portable/app.js')};
 for(const [key,value] of Object.entries(parts))html=html.replace(`__${key}__`,()=>value);
 fs.writeFileSync(path.join(root,'SistemasLineares.html'),html);
 console.log('Versão offline gerada: SistemasLineares.html');

@@ -11,6 +11,7 @@ set "CARGO_TOML=%~dp0native\Cargo.toml"
 set "FIXTURES=%~dp0tests\fixtures.tsv"
 set "PASSOS=%~dp0tests\passos.tsv"
 set "POTENCIAS=%~dp0tests\potencias-corpus.tsv"
+set "GRAFICOS=%~dp0tests\graficos.tsv"
 set "FIXTURES_CSHARP=%~dp0tests\fixtures-csharp.tsv"
 set "AUDITORIA_CSHARP=%~dp0tests\RobustnessTests.exe"
 set "ESPERAR=1"
@@ -24,14 +25,17 @@ if errorlevel 1 goto semrust
 set "SL_FIXTURES_SAIDA=%FIXTURES%"
 set "SL_PASSOS_SAIDA=%PASSOS%"
 set "SL_POTENCIAS_SAIDA=%POTENCIAS%"
+set "SL_GRAFICOS_SAIDA=%GRAFICOS%"
 cargo test --release --no-fail-fast --manifest-path "%CARGO_TOML%" -- --nocapture
 if errorlevel 1 goto falharust
 set "SL_FIXTURES_SAIDA="
 set "SL_PASSOS_SAIDA="
 set "SL_POTENCIAS_SAIDA="
+set "SL_GRAFICOS_SAIDA="
 if not exist "%FIXTURES%" goto semfixtures
 if not exist "%PASSOS%" goto sempassos
 if not exist "%POTENCIAS%" goto sempotencias
+if not exist "%GRAFICOS%" goto semgraficos
 
 echo.
 echo [2/4] Paridade com a versao C# de referencia (legado\csharp)...
@@ -51,12 +55,12 @@ echo %AMARELO% AVISO %NORMAL% Compilador do .NET Framework nao encontrado: parid
 
 :javascript
 echo.
-echo [3/4] Versao HTML (JavaScript): respostas, potencias, modelo da tela e Modo pensar...
+echo [3/4] Versao HTML (JavaScript): respostas, potencias, grafico, modelo da tela e Modo pensar...
 where node >nul 2>nul
 if errorlevel 1 goto semnode
 node "%~dp0tools\build-portable.cjs"
 if errorlevel 1 goto falhajs
-node "%~dp0tests\PortableTests.cjs" "%FIXTURES%" "%PASSOS%" "%POTENCIAS%"
+node "%~dp0tests\PortableTests.cjs" "%FIXTURES%" "%PASSOS%" "%POTENCIAS%" "%GRAFICOS%"
 if errorlevel 1 goto falhajs
 
 echo.
@@ -94,6 +98,9 @@ goto falha
 :sempotencias
 set "MSG=Os testes do Rust nao geraram o corpus de potencias (tests\potencias-corpus.tsv)."
 goto falha
+:semgraficos
+set "MSG=Os testes do Rust nao geraram o corpus de graficos (tests\graficos.tsv)."
+goto falha
 :falhacsharp
 set "MSG=Nao foi possivel rodar a auditoria da versao C# de referencia."
 goto falha
@@ -124,6 +131,7 @@ exit /b 1
 if exist "%FIXTURES%" del "%FIXTURES%"
 if exist "%PASSOS%" del "%PASSOS%"
 if exist "%POTENCIAS%" del "%POTENCIAS%"
+if exist "%GRAFICOS%" del "%GRAFICOS%"
 if exist "%FIXTURES_CSHARP%" del "%FIXTURES_CSHARP%"
 if exist "%AUDITORIA_CSHARP%" del "%AUDITORIA_CSHARP%"
 exit /b 0
