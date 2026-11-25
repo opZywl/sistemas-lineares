@@ -265,8 +265,10 @@ fn referencia_a_96_dpi() {
     assert_eq!(layout.fields[0][0], Rect::new(87, 432, 163, 46));
     assert_eq!(layout.editors[0][0], Rect::new(95, 444, 127, 21));
     assert_eq!(layout.fields[0][3], Rect::new(465, 432, 163, 46));
-    assert_eq!(layout.example, Rect::new(58, 667, 155, 42));
-    assert_eq!(layout.clear, Rect::new(518, 667, 112, 42));
+    assert_eq!(layout.example, Rect::new(343, 340, 155, 42));
+    assert_eq!(layout.clear, Rect::new(518, 340, 112, 42));
+    assert_eq!(layout.dimension_text, Rect::new(420, 405, 210, 24));
+    assert_eq!(layout.grid_label, Rect::new(58, 406, 350, 22));
     assert_eq!(layout.think, Rect::new(702, 667, 186, 42));
     assert_eq!(layout.copy, Rect::new(898, 667, 187, 42));
     assert_eq!(layout.sheet, Rect::new(32, 238, 1079, 493));
@@ -471,20 +473,65 @@ fn caixa_da_previa_cabe_no_card_sem_tocar_o_titulo() {
 }
 
 #[test]
-fn painel_do_grafico_entre_as_equacoes_e_os_botoes() {
+fn botoes_na_linha_do_seletor_e_dimensao_na_linha_dos_coeficientes() {
+    for (scale, size, dimension, layout) in each() {
+        let context = format!("escala {scale} tamanho {size:?} {dimension}x{dimension}");
+        for (name, rect) in [("exemplo", layout.example), ("limpar", layout.clear)] {
+            assert!(
+                rect.y < layout.size_track.bottom() && layout.size_track.y < rect.bottom(),
+                "{context}: {name} fora da linha do seletor"
+            );
+            assert!(
+                rect.x >= layout.size_track.right() + d(scale, 20),
+                "{context}: {name} encosta no seletor"
+            );
+            assert!(
+                rect.bottom() < layout.grid_label.y,
+                "{context}: {name} invade a linha dos coeficientes"
+            );
+        }
+        assert!(
+            (layout.clear.right() - (layout.entry.right() - d(scale, 26))).abs() <= 1,
+            "{context}: limpar alinhado à direita do card"
+        );
+        assert!(
+            layout.dimension_text.y < layout.grid_label.bottom()
+                && layout.grid_label.y < layout.dimension_text.bottom(),
+            "{context}: dimensão fora da linha dos coeficientes"
+        );
+        assert!(
+            layout.grid_label.right() < layout.dimension_text.x,
+            "{context}: dimensão encosta no rótulo"
+        );
+        assert!(
+            layout.dimension_text.bottom() <= layout.fields[0][0].y,
+            "{context}: dimensão invade os campos"
+        );
+    }
+}
+
+#[test]
+fn painel_do_grafico_abaixo_das_equacoes_ate_o_fim_do_card() {
     for (scale, size, dimension, layout) in each() {
         let context = format!("escala {scale} tamanho {size:?} {dimension}x{dimension}");
         let rows_bottom = layout.fields[dimension - 1][3].bottom();
+        let card_bottom = layout.entry.bottom() - d(scale, 22);
         if layout.graph.is_empty() {
             assert!(layout.plot.is_empty(), "{context}");
             assert!(layout.helper.y >= rows_bottom, "{context}");
-            assert!(layout.helper.bottom() <= layout.example.y, "{context}");
+            assert!(layout.helper.bottom() <= card_bottom + 1, "{context}");
             continue;
         }
         assert!(layout.entry.contains(layout.graph), "{context}");
         assert!(layout.graph.y > rows_bottom, "{context}");
-        assert!(layout.graph.bottom() < layout.example.y, "{context}");
-        assert!(layout.graph.bottom() < layout.clear.y, "{context}");
+        assert!(
+            (layout.graph.bottom() - card_bottom).abs() <= 1,
+            "{context}: o painel vai até o fim do card"
+        );
+        assert!(
+            (layout.graph.bottom() - layout.copy.bottom()).abs() <= 1,
+            "{context}: o painel termina na mesma altura dos botões do resultado"
+        );
         assert!(layout.graph.contains(layout.plot), "{context}");
         assert!(layout.graph.contains(layout.helper), "{context}");
         assert!(!layout.plot.intersects(layout.helper), "{context}");
@@ -498,16 +545,21 @@ fn painel_do_grafico_entre_as_equacoes_e_os_botoes() {
         value_height: 41,
     };
     let two = layout::compute(1.0, 1143, 793, 2, metrics);
-    assert_eq!(two.graph, Rect::new(58, 538, 572, 119));
-    assert_eq!(two.plot, Rect::new(62, 542, 233, 111));
-    assert_eq!(two.helper, Rect::new(311, 542, 303, 111));
+    assert_eq!(two.graph, Rect::new(58, 538, 572, 171));
+    assert_eq!(two.plot, Rect::new(62, 542, 251, 163));
+    assert_eq!(two.helper, Rect::new(329, 542, 285, 163));
     let three = layout::compute(1.0, 1143, 793, 3, metrics);
-    assert_eq!(three.graph, Rect::new(58, 588, 572, 69));
-    assert_eq!(three.plot, Rect::new(62, 592, 128, 61));
-    assert_eq!(three.helper, Rect::new(206, 592, 408, 61));
+    assert_eq!(three.graph, Rect::new(58, 588, 572, 121));
+    assert_eq!(three.plot, Rect::new(62, 592, 237, 113));
+    assert_eq!(three.helper, Rect::new(315, 592, 299, 113));
     let base = layout::compute(1.0, 1160, 810, 3, metrics);
-    assert_eq!(base.plot, Rect::new(62, 592, 163, 78));
+    assert_eq!(base.plot, Rect::new(62, 592, 256, 130));
     let small = layout::compute(1.0, 1040, 760, 3, metrics);
-    assert!(small.graph.is_empty());
-    assert_eq!(small.helper.y, small.fields[2][3].bottom() + 4);
+    assert_eq!(small.graph, Rect::new(58, 588, 512, 88));
+    assert_eq!(small.plot, Rect::new(62, 592, 168, 80));
+    let mut tiny = layout::compute(1.0, 1040, 700, 3, metrics);
+    assert!(tiny.graph.is_empty());
+    assert_eq!(tiny.helper.y, tiny.fields[2][3].bottom() + 4);
+    tiny = layout::compute(1.0, 1040, 700, 2, metrics);
+    assert!(!tiny.graph.is_empty());
 }

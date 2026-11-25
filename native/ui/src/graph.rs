@@ -839,7 +839,7 @@ impl Track {
             Some(_) => {
                 now < self.appear + APPEAR || (self.from.is_some() && now < self.morph + MORPH)
             }
-            None => self.ghost.is_some() && now < self.vanish + VANISH,
+            None => self.ghost.is_some() && (now - self.vanish) / VANISH < 1.0,
         }
     }
 
@@ -968,7 +968,7 @@ impl Marker {
                         && now
                             < self.pulsed + PULSE_DELAY + (PULSES - 1) as f64 * PULSE_GAP + PULSE)
             }
-            None => self.ghost.is_some() && now < self.vanish + VANISH,
+            None => self.ghost.is_some() && (now - self.vanish) / VANISH < 1.0,
         }
     }
 
@@ -1253,30 +1253,15 @@ impl Motion {
             unit,
             contrast,
         } = *stage;
-        let aspect = width / height;
-        let half_height = view.half[1].max(view.half[0] / aspect);
-        let half_width = half_height * aspect;
-        let left = view.center[0] - half_width;
-        let right = view.center[0] + half_width;
-        let bottom = view.center[1] - half_height;
-        let top = view.center[1] + half_height;
-        let screen_x = |x: f64| (x - left) / (right - left) * width;
-        let screen_y = |y: f64| (top - y) / (top - bottom) * height;
-        let screen = |point: [f64; 3]| Pt::new(screen_x(point[0]), screen_y(point[1]));
+        let screen = Screen2::new(stage, view);
         let opaque = |alpha: f64| if contrast { 1.0 } else { alpha };
-        let step = nice(2.0 * half_height / 5.0);
-        let even = unit.floor() % 2.0 == 0.0;
-        let snap = |value: f64, limit: f64| {
-            let snapped = if even {
-                (value + 0.5).floor()
-            } else {
-                value.floor() + 0.5
-            };
-            (snapped >= 0.0 && snapped <= limit).then_some(snapped)
-        };
-        let mut index = (left / step).ceil() as i64;
-        while (index as f64) * step <= right {
-            if let (true, Some(x)) = (index != 0, snap(screen_x(index as f64 * step), width)) {
+        let step = nice(2.0 * screen.half_height / 5.0);
+        let mut index = (screen.left / step).ceil() as i64;
+        while (index as f64) * step <= screen.right {
+            if let (true, Some(x)) = (
+                index != 0,
+                screen.snap(screen.x(index as f64 * step), width),
+            ) {
                 items.push(Item {
                     shape: Shape::Segment {
                         from: Pt::new(x, 0.0),
@@ -1289,9 +1274,12 @@ impl Motion {
             }
             index += 1;
         }
-        let mut index = (bottom / step).ceil() as i64;
-        while (index as f64) * step <= top {
-            if let (true, Some(y)) = (index != 0, snap(screen_y(index as f64 * step), height)) {
+        let mut index = (screen.bottom / step).ceil() as i64;
+        while (index as f64) * step <= screen.top {
+            if let (true, Some(y)) = (
+                index != 0,
+                screen.snap(screen.y(index as f64 * step), height),
+            ) {
                 items.push(Item {
                     shape: Shape::Segment {
                         from: Pt::new(0.0, y),
@@ -1304,32 +1292,20 @@ impl Motion {
             }
             index += 1;
         }
-        let axis_y = if bottom < 0.0 && top > 0.0 {
-            snap(screen_y(0.0), height)
-        } else {
-            None
-        };
-        let axis_x = if left < 0.0 && right > 0.0 {
-            snap(screen_x(0.0), width)
-        } else {
-            None
-        };
-        let tall = TEXT_HEIGHT * unit;
-        let letter = CHAR_WIDTH * unit;
-        let lines: Vec<[f64; 3]> = self.tracks[..self.sketch.dimension]
-            .iter()
-            .filter_map(|track| track.target)
-            .map(|plane| {
-                [
-                    plane.normal[0] * (right - left) / width,
-                    -plane.normal[1] * (top - bottom) / height,
-                    plane.offset - plane.normal[0] * left - plane.normal[1] * top,
-                ]
-            })
-            .collect();
-        let clear = |area: Area| !lines.iter().any(|line| area.grow(unit).crossed(*line));
-        let mut areas = Vec::new();
-        if let Some(y) = axis_y {
+        let spot = self.marker.shown(now);
+        let rest = self.plan_two(
+            stage,
+            &Screen2::new(stage, self.view.unwrap_or(view)),
+            self.marker.target,
+            None,
+        );
+        let plan = self.plan_two(
+            stage,
+            &screen,
+            spot.map(|spot| spot.at),
+            Some(&rest.choices),
+        );
+        if let (Some(y), Some((at, vertical))) = (screen.axis_y, plan.x_letter) {
             items.push(Item {
                 shape: Shape::Segment {
                     from: Pt::new(0.0, y),
@@ -1350,23 +1326,6 @@ impl Motion {
                 ink: Ink::Axis,
                 alpha: 1.0,
             });
-            let over = Pt::new(width - 3.0 * unit, y - 5.0 * unit);
-            let under = Pt::new(width - 3.0 * unit, y + 5.0 * unit);
-            let (at, vertical) = if y + 5.0 * unit + tall <= height
-                && !clear(Area::text(over, Anchor::End, Anchor::End, letter, tall))
-                && clear(Area::text(under, Anchor::End, Anchor::Start, letter, tall))
-            {
-                (under, Anchor::Start)
-            } else {
-                (over, Anchor::End)
-            };
-            areas.push(Area::text(at, Anchor::End, vertical, letter, tall));
-            areas.push(Area::span(
-                Pt::new(width - 7.0 * unit, y - 3.5 * unit),
-                Pt::new(width - unit, y + 3.5 * unit),
-                0.0,
-            ));
-            areas.push(Area::span(Pt::new(0.0, y), Pt::new(width, y), 0.5 * unit));
             items.push(Item {
                 shape: Shape::Text {
                     at,
@@ -1378,7 +1337,7 @@ impl Motion {
                 alpha: 1.0,
             });
         }
-        if let Some(x) = axis_x {
+        if let (Some(x), Some((at, horizontal))) = (screen.axis_x, plan.y_letter) {
             items.push(Item {
                 shape: Shape::Segment {
                     from: Pt::new(x, 0.0),
@@ -1399,23 +1358,6 @@ impl Motion {
                 ink: Ink::Axis,
                 alpha: 1.0,
             });
-            let east = Pt::new(x + 6.0 * unit, 2.0 * unit);
-            let west = Pt::new(x - 6.0 * unit, 2.0 * unit);
-            let (at, horizontal) = if x - 6.0 * unit - letter >= 0.0
-                && !clear(Area::text(east, Anchor::Start, Anchor::Start, letter, tall))
-                && clear(Area::text(west, Anchor::End, Anchor::Start, letter, tall))
-            {
-                (west, Anchor::End)
-            } else {
-                (east, Anchor::Start)
-            };
-            areas.push(Area::text(at, horizontal, Anchor::Start, letter, tall));
-            areas.push(Area::span(
-                Pt::new(x - 3.5 * unit, unit),
-                Pt::new(x + 3.5 * unit, 7.0 * unit),
-                0.0,
-            ));
-            areas.push(Area::span(Pt::new(x, 0.0), Pt::new(x, height), 0.5 * unit));
             items.push(Item {
                 shape: Shape::Text {
                     at,
@@ -1427,8 +1369,8 @@ impl Motion {
                 alpha: 1.0,
             });
         }
-        let low = [left, bottom, 0.0];
-        let high = [right, top, 0.0];
+        let low = [screen.left, screen.bottom, 0.0];
+        let high = [screen.right, screen.top, 0.0];
         let segments: Vec<Option<(Pt, Pt, f64)>> = shown
             .iter()
             .map(|entry| {
@@ -1436,7 +1378,7 @@ impl Motion {
                 let plane = entry.plane;
                 let direction = [-plane.normal[1], plane.normal[0], 0.0];
                 let (start, end) = clip(plane.foot(), direction, low, high, 2)?;
-                let (start, end) = (screen(start), screen(end));
+                let (start, end) = (screen.point(start), screen.point(end));
                 let middle = start.lerp(end, 0.5);
                 Some((
                     middle.lerp(start, entry.progress),
@@ -1478,88 +1420,197 @@ impl Motion {
                 shown.iter().map(|entry| entry.map(|e| e.plane)).collect();
             if let Some((point, direction)) = solution_line(2, &planes) {
                 if let Some((start, end)) = clip(point, direction, low, high, 2) {
-                    march(screen(start), screen(end), phase, unit, contrast, items);
+                    march(
+                        screen.point(start),
+                        screen.point(end),
+                        phase,
+                        unit,
+                        contrast,
+                        items,
+                    );
                 }
             }
         }
-        if let Some(spot) = self.marker.shown(now) {
-            let center = screen(spot.at);
-            let coordinates = self.sketch.coordinates();
-            let guide = spot.reveal * spot.alpha;
-            if guide > 0.0 {
-                let label = |index: usize| {
-                    coordinates
-                        .get(index)
-                        .filter(|text| text.as_str() != "0")
-                        .cloned()
-                };
-                let x_text = axis_y.and(label(0));
-                let y_text = axis_x.and(label(1));
-                let mut obstacles = Obstacles { lines, areas };
-                obstacles.areas.push(Area::span(center, center, 6.0 * unit));
-                if let (Some(axis), Some(_)) = (axis_y, &x_text) {
-                    obstacles
-                        .areas
-                        .push(Area::span(center, Pt::new(center.x, axis), 0.5 * unit));
-                }
-                if let (Some(axis), Some(_)) = (axis_x, &y_text) {
-                    obstacles
-                        .areas
-                        .push(Area::span(center, Pt::new(axis, center.y), 0.5 * unit));
-                }
-                if let (Some(axis), Some(text)) = (axis_y, x_text) {
-                    dashes(
-                        center,
-                        Pt::new(center.x, axis),
-                        unit,
-                        opaque(0.85 * guide),
-                        items,
-                    );
-                    if let Some((at, horizontal, vertical)) =
-                        x_label(center, axis, &text, stage, &obstacles)
-                    {
-                        let wide = text.chars().count() as f64 * CHAR_WIDTH * unit;
-                        obstacles
-                            .areas
-                            .push(Area::text(at, horizontal, vertical, wide, tall));
-                        items.push(Item {
-                            shape: Shape::Text {
-                                at,
-                                text,
-                                horizontal,
-                                vertical,
-                            },
-                            ink: Ink::Label,
-                            alpha: opaque(guide),
-                        });
-                    }
-                }
-                if let (Some(axis), Some(text)) = (axis_x, y_text) {
-                    dashes(
-                        center,
-                        Pt::new(axis, center.y),
-                        unit,
-                        opaque(0.85 * guide),
-                        items,
-                    );
-                    if let Some((at, horizontal, vertical)) =
-                        y_label(center, axis, &text, stage, &obstacles)
-                    {
-                        items.push(Item {
-                            shape: Shape::Text {
-                                at,
-                                text,
-                                horizontal,
-                                vertical,
-                            },
-                            ink: Ink::Label,
-                            alpha: opaque(guide),
-                        });
-                    }
+        let Some(spot) = spot else {
+            return;
+        };
+        let center = screen.point(spot.at);
+        let guide = spot.reveal * spot.alpha;
+        if guide > 0.0 {
+            if let (Some(axis), Some((text, placement))) = (screen.axis_y, plan.x_label) {
+                dashes(
+                    center,
+                    Pt::new(center.x, axis),
+                    unit,
+                    opaque(0.85 * guide),
+                    items,
+                );
+                if let Some((at, horizontal, vertical)) = placement {
+                    items.push(Item {
+                        shape: Shape::Text {
+                            at,
+                            text,
+                            horizontal,
+                            vertical,
+                        },
+                        ink: Ink::Label,
+                        alpha: opaque(guide),
+                    });
                 }
             }
-            self.spot_items(now, stage, center, spot.alpha, spot.size, items);
+            if let (Some(axis), Some((text, placement))) = (screen.axis_x, plan.y_label) {
+                dashes(
+                    center,
+                    Pt::new(axis, center.y),
+                    unit,
+                    opaque(0.85 * guide),
+                    items,
+                );
+                if let Some((at, horizontal, vertical)) = placement {
+                    items.push(Item {
+                        shape: Shape::Text {
+                            at,
+                            text,
+                            horizontal,
+                            vertical,
+                        },
+                        ink: Ink::Label,
+                        alpha: opaque(guide),
+                    });
+                }
+            }
         }
+        self.spot_items(now, stage, center, spot.alpha, spot.size, items);
+    }
+
+    fn plan_two(
+        &self,
+        stage: &Stage,
+        screen: &Screen2,
+        point: Option<[f64; 3]>,
+        fixed: Option<&Choices>,
+    ) -> Plan2 {
+        let Stage {
+            width,
+            height,
+            unit,
+            ..
+        } = *stage;
+        let tall = TEXT_HEIGHT * unit;
+        let letter = CHAR_WIDTH * unit;
+        let lines: Vec<[f64; 3]> = self.tracks[..self.sketch.dimension]
+            .iter()
+            .filter_map(|track| track.target)
+            .map(|plane| screen.line(plane))
+            .collect();
+        let clear = |area: Area| !lines.iter().any(|line| area.grow(unit).crossed(*line));
+        let mut plan = Plan2::default();
+        let mut areas = Vec::new();
+        if let Some(y) = screen.axis_y {
+            let over = Pt::new(width - 3.0 * unit, y - 5.0 * unit);
+            let under = Pt::new(width - 3.0 * unit, y + 5.0 * unit);
+            let decided = y + 5.0 * unit + tall <= height
+                && (y - 5.0 * unit - tall < 0.0
+                    || (!clear(Area::text(over, Anchor::End, Anchor::End, letter, tall))
+                        && clear(Area::text(under, Anchor::End, Anchor::Start, letter, tall))));
+            let chosen = fixed.and_then(|fixed| fixed.x_under).unwrap_or(decided);
+            let (at, vertical) = if chosen {
+                (under, Anchor::Start)
+            } else {
+                (over, Anchor::End)
+            };
+            plan.choices.x_under = Some(chosen);
+            plan.x_letter = Some((at, vertical));
+            areas.push(Area::text(at, Anchor::End, vertical, letter, tall));
+            areas.push(Area::span(
+                Pt::new(width - 7.0 * unit, y - 3.5 * unit),
+                Pt::new(width - unit, y + 3.5 * unit),
+                0.0,
+            ));
+            areas.push(Area::span(Pt::new(0.0, y), Pt::new(width, y), 0.5 * unit));
+        }
+        if let Some(x) = screen.axis_x {
+            let east = Pt::new(x + 6.0 * unit, 2.0 * unit);
+            let west = Pt::new(x - 6.0 * unit, 2.0 * unit);
+            let decided = x - 6.0 * unit - letter >= 0.0
+                && (x + 6.0 * unit + letter > width
+                    || (!clear(Area::text(east, Anchor::Start, Anchor::Start, letter, tall))
+                        && clear(Area::text(west, Anchor::End, Anchor::Start, letter, tall))));
+            let chosen = fixed.and_then(|fixed| fixed.y_west).unwrap_or(decided);
+            let (at, horizontal) = if chosen {
+                (west, Anchor::End)
+            } else {
+                (east, Anchor::Start)
+            };
+            plan.choices.y_west = Some(chosen);
+            plan.y_letter = Some((at, horizontal));
+            areas.push(Area::text(at, horizontal, Anchor::Start, letter, tall));
+            areas.push(Area::span(
+                Pt::new(x - 3.5 * unit, unit),
+                Pt::new(x + 3.5 * unit, 7.0 * unit),
+                0.0,
+            ));
+            areas.push(Area::span(Pt::new(x, 0.0), Pt::new(x, height), 0.5 * unit));
+        }
+        let Some(at) = point else {
+            return plan;
+        };
+        let center = screen.point(at);
+        let coordinates = self.sketch.coordinates();
+        let label = |index: usize| {
+            coordinates
+                .get(index)
+                .filter(|text| text.as_str() != "0")
+                .cloned()
+        };
+        let x_text = screen.axis_y.and(label(0));
+        let y_text = screen.axis_x.and(label(1));
+        let mut obstacles = Obstacles {
+            lines,
+            areas,
+            marker: Some(Area::span(center, center, 6.0 * unit)),
+        };
+        if let (Some(axis), Some(_)) = (screen.axis_y, &x_text) {
+            obstacles
+                .areas
+                .push(Area::span(center, Pt::new(center.x, axis), 0.5 * unit));
+        }
+        if let (Some(axis), Some(_)) = (screen.axis_x, &y_text) {
+            obstacles
+                .areas
+                .push(Area::span(center, Pt::new(axis, center.y), 0.5 * unit));
+        }
+        if let (Some(axis), Some(text)) = (screen.axis_y, x_text) {
+            let placed = x_label(
+                center,
+                axis,
+                &text,
+                stage,
+                &obstacles,
+                fixed.and_then(|fixed| fixed.x_label),
+            );
+            if let Some((choice, (at, horizontal, vertical))) = placed {
+                let wide = text.chars().count() as f64 * CHAR_WIDTH * unit;
+                obstacles
+                    .areas
+                    .push(Area::text(at, horizontal, vertical, wide, tall));
+                plan.choices.x_label = Some(choice);
+            }
+            plan.x_label = Some((text, placed.map(|(_, placement)| placement)));
+        }
+        if let (Some(axis), Some(text)) = (screen.axis_x, y_text) {
+            let placed = y_label(
+                center,
+                axis,
+                &text,
+                stage,
+                &obstacles,
+                fixed.and_then(|fixed| fixed.y_label),
+            );
+            plan.choices.y_label = placed.map(|(choice, _)| choice);
+            plan.y_label = Some((text, placed.map(|(_, placement)| placement)));
+        }
+        plan
     }
 
     fn scene_three(
@@ -1884,31 +1935,153 @@ impl Area {
 struct Obstacles {
     lines: Vec<[f64; 3]>,
     areas: Vec<Area>,
+    marker: Option<Area>,
 }
 
 impl Obstacles {
     fn blocks(&self, area: Area) -> bool {
         self.lines.iter().any(|line| area.crossed(*line))
             || self.areas.iter().any(|other| area.meets(*other))
+            || self.marker.is_some_and(|marker| area.meets(marker))
+    }
+
+    fn cost(&self, area: Area) -> usize {
+        let lines = self
+            .lines
+            .iter()
+            .filter(|line| area.crossed(**line))
+            .count();
+        let areas = self
+            .areas
+            .iter()
+            .filter(|other| area.meets(**other))
+            .count();
+        let marker = usize::from(self.marker.is_some_and(|marker| area.meets(marker)));
+        4 * lines + 4 * areas + marker
     }
 }
 
 type Placement = (Pt, Anchor, Anchor);
 
-fn pick(
-    candidates: &[Placement],
+#[derive(Clone, Copy, Debug)]
+struct Screen2 {
+    width: f64,
+    height: f64,
+    even: bool,
+    half_height: f64,
+    left: f64,
+    right: f64,
+    bottom: f64,
+    top: f64,
+    axis_x: Option<f64>,
+    axis_y: Option<f64>,
+}
+
+impl Screen2 {
+    fn new(stage: &Stage, view: Bounds) -> Screen2 {
+        let aspect = stage.width / stage.height;
+        let half_height = view.half[1].max(view.half[0] / aspect);
+        let half_width = half_height * aspect;
+        let mut screen = Screen2 {
+            width: stage.width,
+            height: stage.height,
+            even: stage.unit.floor() % 2.0 == 0.0,
+            half_height,
+            left: view.center[0] - half_width,
+            right: view.center[0] + half_width,
+            bottom: view.center[1] - half_height,
+            top: view.center[1] + half_height,
+            axis_x: None,
+            axis_y: None,
+        };
+        if screen.bottom < 0.0 && screen.top > 0.0 {
+            screen.axis_y = screen.snap(screen.y(0.0), screen.height);
+        }
+        if screen.left < 0.0 && screen.right > 0.0 {
+            screen.axis_x = screen.snap(screen.x(0.0), screen.width);
+        }
+        screen
+    }
+
+    fn x(&self, x: f64) -> f64 {
+        (x - self.left) / (self.right - self.left) * self.width
+    }
+
+    fn y(&self, y: f64) -> f64 {
+        (self.top - y) / (self.top - self.bottom) * self.height
+    }
+
+    fn point(&self, point: [f64; 3]) -> Pt {
+        Pt::new(self.x(point[0]), self.y(point[1]))
+    }
+
+    fn snap(&self, value: f64, limit: f64) -> Option<f64> {
+        let snapped = if self.even {
+            (value + 0.5).floor()
+        } else {
+            value.floor() + 0.5
+        };
+        (snapped >= 0.0 && snapped <= limit).then_some(snapped)
+    }
+
+    fn line(&self, plane: Plane) -> [f64; 3] {
+        [
+            plane.normal[0] * (self.right - self.left) / self.width,
+            -plane.normal[1] * (self.top - self.bottom) / self.height,
+            plane.offset - plane.normal[0] * self.left - plane.normal[1] * self.top,
+        ]
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Choice {
+    side: Anchor,
+    along: Anchor,
+    reach: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Choices {
+    x_under: Option<bool>,
+    y_west: Option<bool>,
+    x_label: Option<Choice>,
+    y_label: Option<Choice>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Plan2 {
+    choices: Choices,
+    x_letter: Option<(Pt, Anchor)>,
+    y_letter: Option<(Pt, Anchor)>,
+    x_label: Option<(String, Option<Placement>)>,
+    y_label: Option<(String, Option<Placement>)>,
+}
+
+fn choose(
+    candidates: &[(Choice, Placement)],
     wide: f64,
     tall: f64,
     unit: f64,
     obstacles: &Obstacles,
-) -> Option<Placement> {
-    candidates
+) -> Option<(Choice, Placement)> {
+    let area = |candidate: &(Choice, Placement)| {
+        let (_, (at, horizontal, vertical)) = *candidate;
+        Area::text(at, horizontal, vertical, wide, tall).grow(unit)
+    };
+    if let Some(free) = candidates
         .iter()
-        .find(|(at, horizontal, vertical)| {
-            !obstacles.blocks(Area::text(*at, *horizontal, *vertical, wide, tall).grow(unit))
-        })
-        .or(candidates.first())
-        .copied()
+        .find(|candidate| !obstacles.blocks(area(candidate)))
+    {
+        return Some(*free);
+    }
+    let mut best: Option<((Choice, Placement), usize)> = None;
+    for candidate in candidates {
+        let cost = obstacles.cost(area(candidate));
+        if best.is_none_or(|(_, lowest)| cost < lowest) {
+            best = Some((*candidate, cost));
+        }
+    }
+    best.map(|(candidate, _)| candidate)
 }
 
 fn x_label(
@@ -1917,7 +2090,8 @@ fn x_label(
     text: &str,
     stage: &Stage,
     obstacles: &Obstacles,
-) -> Option<Placement> {
+    fixed: Option<Choice>,
+) -> Option<(Choice, Placement)> {
     let count = text.chars().count();
     if count > LABEL_LIMIT {
         return None;
@@ -1926,6 +2100,7 @@ fn x_label(
     let tall = TEXT_HEIGHT * unit;
     let wide = count as f64 * CHAR_WIDTH * unit;
     let gap = 4.0 * unit;
+    let clear = 8.0 * unit;
     let below = (axis + gap + tall <= stage.height, axis + gap, Anchor::Start);
     let above = (axis - gap - tall >= 0.0, axis - gap, Anchor::End);
     let (far, near) = if center.y < axis {
@@ -1941,24 +2116,101 @@ fn x_label(
     } else {
         stage.width / 2.0
     };
+    let pushed = |y: f64, vertical: Anchor| {
+        if vertical == Anchor::Start {
+            y.max(center.y + clear)
+        } else {
+            y.min(center.y - clear)
+        }
+    };
+    let place = |choice: Choice| -> (Choice, Placement) {
+        let (_, row, vertical) = if choice.side == Anchor::Start {
+            below
+        } else {
+            above
+        };
+        let y = if choice.reach == 1 {
+            pushed(row, vertical)
+        } else {
+            row
+        };
+        let x = match (choice.reach, choice.along) {
+            (0 | 1, Anchor::Middle) => middle,
+            (0 | 1, Anchor::Start) => center.x + 5.0 * unit,
+            (0 | 1, Anchor::End) => center.x - 5.0 * unit,
+            (2, Anchor::Start) => center.x + clear,
+            (2, _) => center.x - clear,
+            (_, Anchor::Start) => center.x + clear + 7.0 * unit,
+            (_, _) => center.x - clear - 7.0 * unit,
+        };
+        (choice, (Pt::new(x, y), choice.along, vertical))
+    };
+    if let Some(choice) = fixed {
+        return Some(place(choice));
+    }
     let east = center.x + 5.0 * unit + wide <= stage.width - 2.0 * unit;
     let west = center.x - 5.0 * unit - wide >= 2.0 * unit;
     let mut candidates = Vec::new();
+    let mut push = |side: Anchor, along: Anchor, reach: u8| {
+        candidates.push(place(Choice { side, along, reach }));
+    };
     if far.0 {
-        candidates.push((Pt::new(middle, far.1), Anchor::Middle, far.2));
+        push(far.2, Anchor::Middle, 0);
     }
-    for (fits, y, vertical) in [far, near] {
+    for (side, fits) in [(far.2, far.0), (near.2, near.0)] {
         if !fits {
             continue;
         }
         if east {
-            candidates.push((Pt::new(center.x + 5.0 * unit, y), Anchor::Start, vertical));
+            push(side, Anchor::Start, 0);
         }
         if west || !east {
-            candidates.push((Pt::new(center.x - 5.0 * unit, y), Anchor::End, vertical));
+            push(side, Anchor::End, 0);
         }
     }
-    pick(&candidates, wide, tall, unit, obstacles)
+    for (side, (_, row, vertical)) in [(far.2, far), (near.2, near)] {
+        let moved = pushed(row, vertical);
+        let fits = if vertical == Anchor::Start {
+            moved + tall <= stage.height
+        } else {
+            moved - tall >= 0.0
+        };
+        if moved == row || !fits {
+            continue;
+        }
+        push(side, Anchor::Middle, 1);
+        if east {
+            push(side, Anchor::Start, 1);
+        }
+        if west || !east {
+            push(side, Anchor::End, 1);
+        }
+    }
+    let east_clear = center.x + clear + wide <= stage.width - 2.0 * unit;
+    let west_clear = center.x - clear - wide >= 2.0 * unit;
+    for (side, fits) in [(far.2, far.0), (near.2, near.0)] {
+        if !fits {
+            continue;
+        }
+        if east_clear {
+            push(side, Anchor::Start, 2);
+        }
+        if west_clear {
+            push(side, Anchor::End, 2);
+        }
+    }
+    for (side, fits) in [(far.2, far.0), (near.2, near.0)] {
+        if !fits {
+            continue;
+        }
+        if center.x + clear + 7.0 * unit + wide <= stage.width - 2.0 * unit {
+            push(side, Anchor::Start, 3);
+        }
+        if center.x - clear - 7.0 * unit - wide >= 2.0 * unit {
+            push(side, Anchor::End, 3);
+        }
+    }
+    choose(&candidates, wide, tall, unit, obstacles)
 }
 
 fn y_label(
@@ -1967,7 +2219,8 @@ fn y_label(
     text: &str,
     stage: &Stage,
     obstacles: &Obstacles,
-) -> Option<Placement> {
+    fixed: Option<Choice>,
+) -> Option<(Choice, Placement)> {
     let count = text.chars().count();
     if count > LABEL_LIMIT {
         return None;
@@ -1976,6 +2229,7 @@ fn y_label(
     let tall = TEXT_HEIGHT * unit;
     let wide = count as f64 * CHAR_WIDTH * unit;
     let gap = 5.0 * unit;
+    let clear = 8.0 * unit;
     let west = (axis - gap - wide >= 0.0, axis - gap, Anchor::End);
     let east = (axis + gap + wide <= stage.width, axis + gap, Anchor::Start);
     let (far, near) = if center.x > axis {
@@ -1988,24 +2242,88 @@ fn y_label(
     } else {
         stage.height / 2.0
     };
+    let pushed = |x: f64, horizontal: Anchor, reach: u8| match (horizontal == Anchor::Start, reach)
+    {
+        (true, 1) => x.max(center.x + clear),
+        (false, 1) => x.min(center.x - clear),
+        (true, _) => x.max(center.x + clear + 7.0 * unit),
+        (false, _) => x.min(center.x - clear - 7.0 * unit),
+    };
+    let place = |choice: Choice| -> (Choice, Placement) {
+        let (_, column, horizontal) = if choice.side == Anchor::Start {
+            east
+        } else {
+            west
+        };
+        let x = if choice.reach == 1 || choice.reach == 2 {
+            pushed(column, horizontal, choice.reach)
+        } else {
+            column
+        };
+        let y = match (choice.reach, choice.along) {
+            (3, Anchor::End) => center.y - clear,
+            (3, _) => center.y + clear,
+            (_, Anchor::Middle) => middle,
+            (_, Anchor::End) => center.y - 3.0 * unit,
+            (_, Anchor::Start) => center.y + 3.0 * unit,
+        };
+        (choice, (Pt::new(x, y), horizontal, choice.along))
+    };
+    if let Some(choice) = fixed {
+        return Some(place(choice));
+    }
     let up = center.y - 3.0 * unit - tall >= 0.0;
     let down = center.y + 3.0 * unit + tall <= stage.height;
     let mut candidates = Vec::new();
+    let mut push = |side: Anchor, along: Anchor, reach: u8| {
+        candidates.push(place(Choice { side, along, reach }));
+    };
     if far.0 {
-        candidates.push((Pt::new(far.1, middle), far.2, Anchor::Middle));
+        push(far.2, Anchor::Middle, 0);
     }
-    for (fits, x, horizontal) in [far, near] {
+    for (side, fits) in [(far.2, far.0), (near.2, near.0)] {
         if !fits {
             continue;
         }
         if up {
-            candidates.push((Pt::new(x, center.y - 3.0 * unit), horizontal, Anchor::End));
+            push(side, Anchor::End, 0);
         }
         if down || !up {
-            candidates.push((Pt::new(x, center.y + 3.0 * unit), horizontal, Anchor::Start));
+            push(side, Anchor::Start, 0);
         }
     }
-    pick(&candidates, wide, tall, unit, obstacles)
+    for reach in [1, 2] {
+        for (side, (_, column, horizontal)) in [(far.2, far), (near.2, near)] {
+            let moved = pushed(column, horizontal, reach);
+            let fits = if horizontal == Anchor::Start {
+                moved + wide <= stage.width
+            } else {
+                moved - wide >= 0.0
+            };
+            if moved == column || !fits {
+                continue;
+            }
+            push(side, Anchor::Middle, reach);
+            if up {
+                push(side, Anchor::End, reach);
+            }
+            if down || !up {
+                push(side, Anchor::Start, reach);
+            }
+        }
+    }
+    for (side, fits) in [(far.2, far.0), (near.2, near.0)] {
+        if !fits {
+            continue;
+        }
+        if center.y - clear - tall >= 0.0 {
+            push(side, Anchor::End, 3);
+        }
+        if center.y + clear + tall <= stage.height {
+            push(side, Anchor::Start, 3);
+        }
+    }
+    choose(&candidates, wide, tall, unit, obstacles)
 }
 
 fn dashes(from: Pt, to: Pt, unit: f64, alpha: f64, items: &mut Vec<Item>) {
@@ -2655,13 +2973,200 @@ mod tests {
                 }
             }
         }
-        let padrao = describe(&rest(&exemplo2(), 252.0, 120.0));
+        let ancoras: Vec<(String, Anchor, Anchor)> = rest(&exemplo2(), 252.0, 120.0)
+            .iter()
+            .filter_map(|item| match &item.shape {
+                Shape::Text {
+                    text,
+                    horizontal,
+                    vertical,
+                    ..
+                } => Some((text.clone(), *horizontal, *vertical)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            ancoras,
+            [
+                ("x".to_string(), Anchor::End, Anchor::End),
+                ("y".to_string(), Anchor::Start, Anchor::Start),
+                ("2".to_string(), Anchor::Middle, Anchor::Start),
+                ("1".to_string(), Anchor::End, Anchor::Middle),
+            ]
+        );
+    }
+
+    #[test]
+    fn rotulos_fogem_do_ponto_sobre_o_eixo() {
+        let casos = [
+            (
+                plane2(1.0, 1.0, 4.0),
+                plane2(1.0, -1.0, -4.0),
+                [0.0, 4.0],
+                "4",
+                1,
+            ),
+            (
+                plane2(2.0, 1.0, 4.0),
+                plane2(1.0, 1.0, 4.0),
+                [0.0, 4.0],
+                "4",
+                1,
+            ),
+            (
+                plane2(1.0, 1.0, 3.0),
+                plane2(1.0, -1.0, 3.0),
+                [3.0, 0.0],
+                "3",
+                0,
+            ),
+            (
+                plane2(1.0, 2.0, 3.0),
+                plane2(2.0, 1.0, 6.0),
+                [3.0, 0.0],
+                "3",
+                0,
+            ),
+        ];
+        for (primeira, segunda, ponto, texto, indice) in casos {
+            let mut coordenadas = vec!["0".to_string(), "0".to_string()];
+            coordenadas[indice] = texto.to_string();
+            let sketch = Sketch {
+                dimension: 2,
+                rows: vec![primeira, segunda],
+                verdict: Verdict::Point {
+                    at: Some([ponto[0], ponto[1], 0.0]),
+                    coordinates: coordenadas,
+                },
+            };
+            for (width, height) in [(252.0, 120.0), (267.0, 128.0), (233.0, 111.0)] {
+                let items = rest(&sketch, width, height);
+                let linhas: Vec<[f64; 3]> = items
+                    .iter()
+                    .filter(|item| matches!(item.ink, Ink::Row(_)) && item.alpha == 1.0)
+                    .filter_map(|item| match item.shape {
+                        Shape::Segment { from, to, .. } => {
+                            let a = to.y - from.y;
+                            let b = from.x - to.x;
+                            Some([a, b, a * from.x + b * from.y])
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let centro = items
+                    .iter()
+                    .find_map(|item| match item.shape {
+                        Shape::Disc { center, .. } if item.ink == Ink::Point => Some(center),
+                        _ => None,
+                    })
+                    .unwrap();
+                let area_do_ponto = Area::span(centro, centro, 6.0);
+                let areas: Vec<(String, Area)> = items
+                    .iter()
+                    .filter_map(|item| match &item.shape {
+                        Shape::Text {
+                            at,
+                            text,
+                            horizontal,
+                            vertical,
+                        } => Some((
+                            text.clone(),
+                            Area::text(
+                                *at,
+                                *horizontal,
+                                *vertical,
+                                text.chars().count() as f64 * CHAR_WIDTH,
+                                TEXT_HEIGHT,
+                            ),
+                        )),
+                        _ => None,
+                    })
+                    .collect();
+                let (_, rotulo) = areas
+                    .iter()
+                    .find(|(nome, _)| nome == texto)
+                    .expect("rótulo da coordenada");
+                let contexto = format!("{ponto:?} em {width}x{height}: {rotulo:?}");
+                for linha in &linhas {
+                    assert!(!rotulo.crossed(*linha), "reta cruza o rótulo {contexto}");
+                }
+                assert!(
+                    !rotulo.meets(area_do_ponto),
+                    "rótulo encosta no ponto {contexto}"
+                );
+                for (nome, letra) in &areas {
+                    if nome == "x" || nome == "y" {
+                        assert!(
+                            !rotulo.meets(*letra),
+                            "rótulo sobre a letra {nome} {contexto}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn letras_dos_eixos_ficam_dentro_da_area() {
+        let sketch = Sketch {
+            dimension: 2,
+            rows: vec![plane2(1.0, 1.0, -10.0), plane2(1.0, -1.0, 0.0)],
+            verdict: Verdict::Point {
+                at: Some([-5.0, -5.0, 0.0]),
+                coordinates: vec!["-5".to_string(), "-5".to_string()],
+            },
+        };
+        let items = rest(&sketch, 252.0, 120.0);
+        let letra = items
+            .iter()
+            .find_map(|item| match &item.shape {
+                Shape::Text {
+                    at, text, vertical, ..
+                } if text == "x" => Some((*at, *vertical)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(letra.1, Anchor::Start, "a letra x vai para baixo do eixo");
+        assert!(letra.0.y >= 0.0 && letra.0.y + TEXT_HEIGHT <= 120.0);
+    }
+
+    #[test]
+    fn rotulos_nao_trocam_de_lado_durante_a_animacao() {
+        let alvo = Sketch {
+            dimension: 2,
+            rows: vec![plane2(3.0, 0.0, 1.0), plane2(0.0, 1.0, 2.0)],
+            verdict: Verdict::Point {
+                at: Some([1.0 / 3.0, 2.0, 0.0]),
+                coordinates: vec!["1/3".to_string(), "2".to_string()],
+            },
+        };
+        let ancoras = |items: &[Item]| -> Vec<(String, Anchor, Anchor)> {
+            items
+                .iter()
+                .filter_map(|item| match &item.shape {
+                    Shape::Text {
+                        text,
+                        horizontal,
+                        vertical,
+                        ..
+                    } => Some((text.clone(), *horizontal, *vertical)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let parado = ancoras(&rest(&alvo, 252.0, 120.0));
         let mut motion = Motion::new();
         motion.update(&exemplo2(), 0.0, false);
-        assert_eq!(
-            describe(&motion.scene(1e9, 252.0, 120.0, 1.0, false)),
-            padrao
-        );
+        motion.update(&alvo, 1.0, true);
+        let mut agora = 1.0;
+        while motion.busy(agora, false) {
+            for entrada in ancoras(&motion.scene(agora, 252.0, 120.0, 1.0, false)) {
+                if let Some(fim) = parado.iter().find(|fim| fim.0 == entrada.0) {
+                    assert_eq!(&entrada, fim, "quadro {agora}");
+                }
+            }
+            agora += 1.0 / 60.0;
+        }
     }
 
     #[test]

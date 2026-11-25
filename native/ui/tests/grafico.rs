@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use sistemas_lineares_ui::graph::{self, Item, Motion, Shape, Verdict};
+use sistemas_lineares_ui::graph::{self, Anchor, Item, Motion, Shape, Verdict};
 use sistemas_lineares_ui::model::{self, Model};
 
 const TAMANHOS_2D: [(f64, f64, f64); 4] = [
@@ -46,6 +46,10 @@ fn casos_fixos() -> Vec<(usize, Vec<Vec<&'static str>>)> {
         (2, vec![vec!["2", "1", ""], vec!["1", "-1", "1"]]),
         (2, vec![vec!["2", "1", "5"], vec!["1", "-1", "1"]]),
         (2, vec![vec!["4", "1", "5"], vec!["1", "-1", "1"]]),
+        (2, vec![vec!["1", "1", "4"], vec!["1", "-1", "-4"]]),
+        (2, vec![vec!["2", "1", "4"], vec!["1", "1", "4"]]),
+        (2, vec![vec!["1", "1", "3"], vec!["1", "-1", "3"]]),
+        (2, vec![vec!["1", "2", "3"], vec!["2", "1", "6"]]),
         (2, vec![vec!["1", "1", "2"], vec!["2", "2", "4"]]),
         (2, vec![vec!["1", "1", "2"], vec!["1", "1", "3"]]),
         (2, vec![vec!["1", "1", "2"], vec!["0", "0", "0"]]),
@@ -221,6 +225,29 @@ fn preencher(dimension: usize, linhas: &[Vec<String>]) -> Model {
     model
 }
 
+fn ancoras(items: &[Item]) -> Vec<(String, Anchor, Anchor)> {
+    items
+        .iter()
+        .filter_map(|item| match &item.shape {
+            Shape::Text {
+                text,
+                horizontal,
+                vertical,
+                ..
+            } => Some((text.clone(), *horizontal, *vertical)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn mesmos_textos(uma: &[(String, Anchor, Anchor)], outra: &[(String, Anchor, Anchor)]) -> bool {
+    let mut primeira: Vec<&str> = uma.iter().map(|(text, _, _)| text.as_str()).collect();
+    let mut segunda: Vec<&str> = outra.iter().map(|(text, _, _)| text.as_str()).collect();
+    primeira.sort_unstable();
+    segunda.sort_unstable();
+    primeira == segunda
+}
+
 fn conferir(contexto: &str, items: &[Item], width: f64, height: f64, estrito: bool) {
     let dentro = |x: f64, y: f64| {
         !estrito || (x >= -0.01 && y >= -0.01 && x <= width + 0.01 && y <= height + 0.01)
@@ -335,21 +362,42 @@ fn animacao_completa_chega_na_cena_de_repouso() {
             TAMANHOS_3D[0]
         };
         let contraste = indice % 5 == 0;
+        let mut repouso = Motion::new();
+        repouso.update(&depois, 0.0, false);
+        let parado = repouso.scene(1e9, width, height, unit, contraste);
+        let ancoras_paradas = ancoras(&parado);
         let mut motion = Motion::new();
         motion.update(&antes, 0.0, false);
         motion.update(&depois, 1.0, true);
         let mut agora = 1.0;
+        let mut anteriores: Option<Vec<(String, Anchor, Anchor)>> = None;
+        let mut trocas = vec![0; ancoras_paradas.len()];
         while motion.busy(agora, contraste) {
             let items = motion.scene(agora, width, height, unit, contraste);
             conferir(&format!("quadro {agora}"), &items, width, height, false);
+            let ancoras_do_quadro = ancoras(&items);
+            if mesmos_textos(&ancoras_do_quadro, &ancoras_paradas) {
+                if let Some(anteriores) = &anteriores {
+                    for (indice, (antes, agora_)) in
+                        anteriores.iter().zip(&ancoras_do_quadro).enumerate()
+                    {
+                        if antes != agora_ {
+                            trocas[indice] += 1;
+                        }
+                    }
+                }
+                assert!(
+                    trocas.iter().all(|vezes| *vezes <= 1),
+                    "um rótulo trocou de lado mais de uma vez até o quadro {agora}: {depois:?}"
+                );
+                anteriores = Some(ancoras_do_quadro);
+            }
             agora += 1.0 / 30.0;
             assert!(agora < 10.0, "a animação precisa terminar");
         }
-        let mut repouso = Motion::new();
-        repouso.update(&depois, 0.0, false);
         assert_eq!(
             motion.scene(agora, width, height, unit, contraste),
-            repouso.scene(1e9, width, height, unit, contraste),
+            parado,
             "{depois:?}"
         );
     }

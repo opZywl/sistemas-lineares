@@ -228,6 +228,9 @@ pub const GRAPH_GAP: i32 = 10;
 pub const GRAPH_INSET: i32 = 4;
 pub const GRAPH_MIN_HEIGHT: i32 = 56;
 pub const CAPTION_GAP: i32 = 16;
+pub const CARD_BOTTOM: i32 = 22;
+pub const ACTION_GAP: i32 = 20;
+pub const DIMENSION_WIDTH: i32 = 210;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Keycap {
@@ -404,10 +407,10 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         entry_description: place(entry, 26, 59, left - 52, 25),
         two: place(entry, 26, 103, 88, 40),
         three: place(entry, 120, 103, 88, 40),
-        dimension_text: place(entry, 228, 113, left - 250, 24),
-        grid_label: place(entry, 26, 168, left - 52, 22),
-        example: place(entry, 26, card_height - 64, 155, 42),
-        clear: place(entry, left - 138, card_height - 64, 112, 42),
+        dimension_text: place(entry, left - 26 - DIMENSION_WIDTH, 167, DIMENSION_WIDTH, 24),
+        grid_label: place(entry, 26, 168, left - 64 - DIMENSION_WIDTH, 22),
+        example: place(entry, left - 138 - ACTION_GAP - 155, 102, 155, 42),
+        clear: place(entry, left - 138, 102, 112, 42),
         solution_label: place(solution, 26, 26, right - 52, 24),
         solution_title: place(solution, 26, 65, right - 52, 35),
         solution_description: place(solution, 26, 106, right - 52, 52),
@@ -430,6 +433,7 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         footer_label: place(root, 33, height - 43, 116, 25),
         ..Layout::default()
     };
+    layout.example.x = layout.clear.x - d(scale, ACTION_GAP) - layout.example.w;
     layout.size_track = inflate(union(layout.two, layout.three), d(scale, TRACK_INSET));
     let mut link_x = 33 + 116;
     for (index, link_width) in LINK_WIDTHS.into_iter().enumerate() {
@@ -471,9 +475,9 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
     layout.note.y = layout.note.y.max(layout.tiles[2].bottom());
     let rows_bottom = 194 + 50 * (dimension as i32 - 1) + 46;
     let band_top = rows_bottom + GRAPH_GAP;
-    let band = card_height - 64 - GRAPH_GAP - band_top;
+    let band = card_height - CARD_BOTTOM - band_top;
     if band >= GRAPH_MIN_HEIGHT {
-        let plot_width = ((band - 2 * GRAPH_INSET) * 21 / 10).min((left - 52) * 46 / 100);
+        let plot_width = ((band - 2 * GRAPH_INSET) * 21 / 10).min((left - 52) * 44 / 100);
         let graph = place(entry, 26, band_top, left - 52, band);
         let inset = d(scale, GRAPH_INSET);
         let plot = Rect::new(
@@ -489,7 +493,7 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         layout.helper = Rect::new(caption_x, plot.y, graph.right() - gap - caption_x, plot.h);
     } else {
         let top = rows_bottom + 4;
-        layout.helper = place(entry, 26, top, left - 52, card_height - 68 - top);
+        layout.helper = place(entry, 26, top, left - 52, card_height - CARD_BOTTOM - top);
     }
     let sheet = place(root, 32, SHEET_TOP, width - 64, card_height);
     layout.sheet = sheet;
