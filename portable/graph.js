@@ -297,7 +297,7 @@
   }
   busy(now){
    if(this.target)return now<this.appear+APPEAR||(this.from!==null&&now<this.morph+MORPH);
-   return this.ghost!==null&&now<this.vanish+VANISH;
+   return this.ghost!==null&&(now-this.vanish)/VANISH<1;
   }
   retarget(target,now,animate){
    if(samePlane(this.target,target))return;
@@ -360,7 +360,7 @@
   }
   busy(now,contrast){
    if(this.target)return now<this.popped+POP||(this.from!==null&&now<this.moved+MORPH)||(!contrast&&now<this.pulsed+PULSE_DELAY+(PULSES-1)*PULSE_GAP+PULSE);
-   return this.ghost!==null&&now<this.vanish+VANISH;
+   return this.ghost!==null&&(now-this.vanish)/VANISH<1;
   }
   retarget(target,now,animate){
    if(sameTriple(this.target,target))return;
@@ -404,46 +404,118 @@
   const above=corners.every(value=>value>0),below=corners.every(value=>value<0);
   return !above&&!below;
  }
- const blocks=(obstacles,area)=>obstacles.lines.some(line=>crossed(area,line))||obstacles.areas.some(other=>meets(area,other));
- function pick(candidates,wide,tall,unit,obstacles){
-  const found=candidates.find(([at,horizontal,vertical])=>!blocks(obstacles,grow(textArea(at,horizontal,vertical,wide,tall),unit)));
-  return found||candidates[0]||null;
+ const blocks=(obstacles,area)=>obstacles.lines.some(line=>crossed(area,line))||obstacles.areas.some(other=>meets(area,other))||(obstacles.marker!==null&&meets(area,obstacles.marker));
+ const cost=(obstacles,area)=>4*obstacles.lines.filter(line=>crossed(area,line)).length+4*obstacles.areas.filter(other=>meets(area,other)).length+(obstacles.marker!==null&&meets(area,obstacles.marker)?1:0);
+ function choose(candidates,wide,tall,unit,obstacles){
+  const area=([,[at,horizontal,vertical]])=>grow(textArea(at,horizontal,vertical,wide,tall),unit);
+  const free=candidates.find(candidate=>!blocks(obstacles,area(candidate)));
+  if(free)return free;
+  let best=null,lowest=0;
+  for(const candidate of candidates){
+   const total=cost(obstacles,area(candidate));
+   if(best===null||total<lowest){best=candidate;lowest=total;}
+  }
+  return best;
  }
 
- function xLabel(center,axis,text,stage,obstacles){
+ function screenTwo(stage,view){
+  const aspect=stage.width/stage.height,halfHeight=max(view.half[1],view.half[0]/aspect),halfWidth=halfHeight*aspect;
+  const screen={width:stage.width,height:stage.height,even:Math.floor(stage.unit)%2===0,halfHeight,left:view.center[0]-halfWidth,right:view.center[0]+halfWidth,bottom:view.center[1]-halfHeight,top:view.center[1]+halfHeight,axisX:null,axisY:null};
+  screen.x=x=>(x-screen.left)/(screen.right-screen.left)*screen.width;
+  screen.y=y=>(screen.top-y)/(screen.top-screen.bottom)*screen.height;
+  screen.point=point=>pt(screen.x(point[0]),screen.y(point[1]));
+  screen.snap=(value,limit)=>{const snapped=screen.even?Math.floor(value+0.5):Math.floor(value)+0.5;return snapped>=0&&snapped<=limit?snapped:null;};
+  screen.line=target=>[target.normal[0]*(screen.right-screen.left)/screen.width,-target.normal[1]*(screen.top-screen.bottom)/screen.height,target.offset-target.normal[0]*screen.left-target.normal[1]*screen.top];
+  if(screen.bottom<0&&screen.top>0)screen.axisY=screen.snap(screen.y(0),screen.height);
+  if(screen.left<0&&screen.right>0)screen.axisX=screen.snap(screen.x(0),screen.width);
+  return screen;
+ }
+
+ function xLabel(center,axis,text,stage,obstacles,fixed){
   const count=Array.from(text).length;
   if(count>LABEL_LIMIT)return null;
-  const unit=stage.unit,tall=TEXT_HEIGHT*unit,wide=count*CHAR_WIDTH*unit,gap=4*unit;
+  const unit=stage.unit,tall=TEXT_HEIGHT*unit,wide=count*CHAR_WIDTH*unit,gap=4*unit,clear=8*unit;
   const below=[axis+gap+tall<=stage.height,axis+gap,'s'],above=[axis-gap-tall>=0,axis-gap,'e'];
   const [far,near]=center.y<axis?[below,above]:[above,below];
   const middle=stage.width>wide+4*unit?clamp(center.x,wide/2+2*unit,stage.width-wide/2-2*unit):stage.width/2;
+  const pushed=(y,vertical)=>vertical==='s'?max(y,center.y+clear):min(y,center.y-clear);
+  const place=choice=>{
+   const side=choice.side==='s'?below:above,y=choice.reach===1?pushed(side[1],side[2]):side[1];
+   let x;
+   if(choice.reach<=1)x=choice.along==='m'?middle:choice.along==='s'?center.x+5*unit:center.x-5*unit;
+   else if(choice.reach===2)x=choice.along==='s'?center.x+clear:center.x-clear;
+   else x=choice.along==='s'?center.x+clear+7*unit:center.x-clear-7*unit;
+   return [choice,[pt(x,y),choice.along,side[2]]];
+  };
+  if(fixed)return place(fixed);
   const east=center.x+5*unit+wide<=stage.width-2*unit,west=center.x-5*unit-wide>=2*unit;
-  const candidates=[];
-  if(far[0])candidates.push([pt(middle,far[1]),'m',far[2]]);
-  for(const [fits,y,vertical] of [far,near]){
+  const candidates=[],push=(side,along,reach)=>candidates.push(place({side,along,reach}));
+  if(far[0])push(far[2],'m',0);
+  for(const [isFar,fits] of [[far[2],far[0]],[near[2],near[0]]]){
    if(!fits)continue;
-   if(east)candidates.push([pt(center.x+5*unit,y),'s',vertical]);
-   if(west||!east)candidates.push([pt(center.x-5*unit,y),'e',vertical]);
+   if(east)push(isFar,'s',0);
+   if(west||!east)push(isFar,'e',0);
   }
-  return pick(candidates,wide,tall,unit,obstacles);
+  for(const [isFar,side] of [[far[2],far],[near[2],near]]){
+   const moved=pushed(side[1],side[2]),fits=side[2]==='s'?moved+tall<=stage.height:moved-tall>=0;
+   if(moved===side[1]||!fits)continue;
+   push(isFar,'m',1);
+   if(east)push(isFar,'s',1);
+   if(west||!east)push(isFar,'e',1);
+  }
+  const eastClear=center.x+clear+wide<=stage.width-2*unit,westClear=center.x-clear-wide>=2*unit;
+  for(const [isFar,fits] of [[far[2],far[0]],[near[2],near[0]]]){
+   if(!fits)continue;
+   if(eastClear)push(isFar,'s',2);
+   if(westClear)push(isFar,'e',2);
+  }
+  for(const [isFar,fits] of [[far[2],far[0]],[near[2],near[0]]]){
+   if(!fits)continue;
+   if(center.x+clear+7*unit+wide<=stage.width-2*unit)push(isFar,'s',3);
+   if(center.x-clear-7*unit-wide>=2*unit)push(isFar,'e',3);
+  }
+  return choose(candidates,wide,tall,unit,obstacles);
  }
 
- function yLabel(center,axis,text,stage,obstacles){
+ function yLabel(center,axis,text,stage,obstacles,fixed){
   const count=Array.from(text).length;
   if(count>LABEL_LIMIT)return null;
-  const unit=stage.unit,tall=TEXT_HEIGHT*unit,wide=count*CHAR_WIDTH*unit,gap=5*unit;
+  const unit=stage.unit,tall=TEXT_HEIGHT*unit,wide=count*CHAR_WIDTH*unit,gap=5*unit,clear=8*unit;
   const west=[axis-gap-wide>=0,axis-gap,'e'],east=[axis+gap+wide<=stage.width,axis+gap,'s'];
   const [far,near]=center.x>axis?[west,east]:[east,west];
   const middle=stage.height>tall?clamp(center.y,tall/2,stage.height-tall/2):stage.height/2;
+  const pushed=(x,horizontal,reach)=>horizontal==='s'?(reach===1?max(x,center.x+clear):max(x,center.x+clear+7*unit)):(reach===1?min(x,center.x-clear):min(x,center.x-clear-7*unit));
+  const place=choice=>{
+   const side=choice.side==='s'?east:west,x=choice.reach===1||choice.reach===2?pushed(side[1],side[2],choice.reach):side[1];
+   let y;
+   if(choice.reach===3)y=choice.along==='e'?center.y-clear:center.y+clear;
+   else y=choice.along==='m'?middle:choice.along==='e'?center.y-3*unit:center.y+3*unit;
+   return [choice,[pt(x,y),side[2],choice.along]];
+  };
+  if(fixed)return place(fixed);
   const up=center.y-3*unit-tall>=0,down=center.y+3*unit+tall<=stage.height;
-  const candidates=[];
-  if(far[0])candidates.push([pt(far[1],middle),far[2],'m']);
-  for(const [fits,x,horizontal] of [far,near]){
+  const candidates=[],push=(side,along,reach)=>candidates.push(place({side,along,reach}));
+  if(far[0])push(far[2],'m',0);
+  for(const [isFar,fits] of [[far[2],far[0]],[near[2],near[0]]]){
    if(!fits)continue;
-   if(up)candidates.push([pt(x,center.y-3*unit),horizontal,'e']);
-   if(down||!up)candidates.push([pt(x,center.y+3*unit),horizontal,'s']);
+   if(up)push(isFar,'e',0);
+   if(down||!up)push(isFar,'s',0);
   }
-  return pick(candidates,wide,tall,unit,obstacles);
+  for(const reach of [1,2]){
+   for(const [isFar,side] of [[far[2],far],[near[2],near]]){
+    const moved=pushed(side[1],side[2],reach),fits=side[2]==='s'?moved+wide<=stage.width:moved-wide>=0;
+    if(moved===side[1]||!fits)continue;
+    push(isFar,'m',reach);
+    if(up)push(isFar,'e',reach);
+    if(down||!up)push(isFar,'s',reach);
+   }
+  }
+  for(const [isFar,fits] of [[far[2],far[0]],[near[2],near[0]]]){
+   if(!fits)continue;
+   if(center.y-clear-tall>=0)push(isFar,'e',3);
+   if(center.y+clear+tall<=stage.height)push(isFar,'s',3);
+  }
+  return choose(candidates,wide,tall,unit,obstacles);
  }
 
  function dashes(from,to,unit,alpha,items){
@@ -554,56 +626,36 @@
   }
   sceneTwo(now,stage,view,shown,phase,items){
    const {width,height,unit,contrast}=stage;
-   const aspect=width/height,halfHeight=max(view.half[1],view.half[0]/aspect),halfWidth=halfHeight*aspect;
-   const left=view.center[0]-halfWidth,right=view.center[0]+halfWidth,bottom=view.center[1]-halfHeight,top=view.center[1]+halfHeight;
-   const screenX=x=>(x-left)/(right-left)*width,screenY=y=>(top-y)/(top-bottom)*height,screen=point=>pt(screenX(point[0]),screenY(point[1]));
-   const opaque=alpha=>contrast?1:alpha,step=nice(2*halfHeight/5);
-   const even=Math.floor(unit)%2===0;
-   const snap=(value,limit)=>{const snapped=even?Math.floor(value+0.5):Math.floor(value)+0.5;return snapped>=0&&snapped<=limit?snapped:null;};
-   for(let index=integer(left/step);index*step<=right;index++){
-    const x=snap(screenX(index*step),width);
+   const screen=screenTwo(stage,view),opaque=alpha=>contrast?1:alpha,step=nice(2*screen.halfHeight/5);
+   for(let index=integer(screen.left/step);index*step<=screen.right;index++){
+    const x=screen.snap(screen.x(index*step),width);
     if(index!==0&&x!==null)items.push(item(segment(pt(x,0),pt(x,height),unit),'g',1));
    }
-   for(let index=integer(bottom/step);index*step<=top;index++){
-    const y=snap(screenY(index*step),height);
+   for(let index=integer(screen.bottom/step);index*step<=screen.top;index++){
+    const y=screen.snap(screen.y(index*step),height);
     if(index!==0&&y!==null)items.push(item(segment(pt(0,y),pt(width,y),unit),'g',1));
    }
-   const axisY=bottom<0&&top>0?snap(screenY(0),height):null,axisX=left<0&&right>0?snap(screenX(0),width):null;
-   const tall=TEXT_HEIGHT*unit,letter=CHAR_WIDTH*unit;
-   const lines=this.tracks.slice(0,this.state.dimension).filter(track=>track.target).map(track=>{
-    const target=track.target;
-    return [target.normal[0]*(right-left)/width,-target.normal[1]*(top-bottom)/height,target.offset-target.normal[0]*left-target.normal[1]*top];
-   });
-   const clear=area=>!lines.some(line=>crossed(grow(area,unit),line));
-   const areas=[];
-   if(axisY!==null){
-    items.push(item(segment(pt(0,axisY),pt(width,axisY),unit),'a',1));
-    items.push(item(polygon([pt(width-unit,axisY),pt(width-7*unit,axisY-3.5*unit),pt(width-7*unit,axisY+3.5*unit)]),'a',1));
-    const over=pt(width-3*unit,axisY-5*unit),under=pt(width-3*unit,axisY+5*unit);
-    const flip=axisY+5*unit+tall<=height&&!clear(textArea(over,'e','e',letter,tall))&&clear(textArea(under,'e','s',letter,tall));
-    const at=flip?under:over,vertical=flip?'s':'e';
-    areas.push(textArea(at,'e',vertical,letter,tall));
-    areas.push(spanArea(pt(width-7*unit,axisY-3.5*unit),pt(width-unit,axisY+3.5*unit),0));
-    areas.push(spanArea(pt(0,axisY),pt(width,axisY),0.5*unit));
-    items.push(item(label(at,'x','e',vertical),'l',1));
+   const spot=this.marker.shown(now);
+   const rest=this.planTwo(stage,screenTwo(stage,this.view??view),this.marker.target,null);
+   const plan=this.planTwo(stage,screen,spot?spot.at:null,rest.choices);
+   if(screen.axisY!==null&&plan.xLetter){
+    const y=screen.axisY;
+    items.push(item(segment(pt(0,y),pt(width,y),unit),'a',1));
+    items.push(item(polygon([pt(width-unit,y),pt(width-7*unit,y-3.5*unit),pt(width-7*unit,y+3.5*unit)]),'a',1));
+    items.push(item(label(plan.xLetter[0],'x','e',plan.xLetter[1]),'l',1));
    }
-   if(axisX!==null){
-    items.push(item(segment(pt(axisX,0),pt(axisX,height),unit),'a',1));
-    items.push(item(polygon([pt(axisX,unit),pt(axisX-3.5*unit,7*unit),pt(axisX+3.5*unit,7*unit)]),'a',1));
-    const east=pt(axisX+6*unit,2*unit),west=pt(axisX-6*unit,2*unit);
-    const flip=axisX-6*unit-letter>=0&&!clear(textArea(east,'s','s',letter,tall))&&clear(textArea(west,'e','s',letter,tall));
-    const at=flip?west:east,horizontal=flip?'e':'s';
-    areas.push(textArea(at,horizontal,'s',letter,tall));
-    areas.push(spanArea(pt(axisX-3.5*unit,unit),pt(axisX+3.5*unit,7*unit),0));
-    areas.push(spanArea(pt(axisX,0),pt(axisX,height),0.5*unit));
-    items.push(item(label(at,'y',horizontal,'s'),'l',1));
+   if(screen.axisX!==null&&plan.yLetter){
+    const x=screen.axisX;
+    items.push(item(segment(pt(x,0),pt(x,height),unit),'a',1));
+    items.push(item(polygon([pt(x,unit),pt(x-3.5*unit,7*unit),pt(x+3.5*unit,7*unit)]),'a',1));
+    items.push(item(label(plan.yLetter[0],'y',plan.yLetter[1],'s'),'l',1));
    }
-   const low=[left,bottom,0],high=[right,top,0];
+   const low=[screen.left,screen.bottom,0],high=[screen.right,screen.top,0];
    const segments=shown.map(entry=>{
     if(!entry)return null;
     const shownPlane=entry.plane,direction=[-shownPlane.normal[1],shownPlane.normal[0],0],line=clip(foot(shownPlane),direction,low,high,2);
     if(!line)return null;
-    const start=screen(line[0]),end=screen(line[1]),middle=lerpPt(start,end,0.5);
+    const start=screen.point(line[0]),end=screen.point(line[1]),middle=lerpPt(start,end,0.5);
     return [lerpPt(middle,start,entry.progress),lerpPt(middle,end,entry.progress),entry.alpha];
    });
    if(!contrast)segments.forEach((entry,row)=>{if(entry)items.push(item(segment(entry[0],entry[1],7*unit),rowInk(row),0.14*entry[2]));});
@@ -612,34 +664,73 @@
     const line=solutionLine(2,shown.map(entry=>entry?entry.plane:null));
     if(line){
      const clipped=clip(line[0],line[1],low,high,2);
-     if(clipped)march(screen(clipped[0]),screen(clipped[1]),phase,unit,contrast,items);
+     if(clipped)march(screen.point(clipped[0]),screen.point(clipped[1]),phase,unit,contrast,items);
     }
    }
-   const spot=this.marker.shown(now);
    if(!spot)return;
-   const center=screen(spot.at),coordinates=sketchCoordinates(this.state),guide=spot.reveal*spot.alpha;
+   const center=screen.point(spot.at),guide=spot.reveal*spot.alpha;
    if(guide>0){
-    const coordinate=index=>index<coordinates.length&&coordinates[index]!=='0'?coordinates[index]:null;
-    const textX=axisY!==null?coordinate(0):null,textY=axisX!==null?coordinate(1):null;
-    const obstacles={lines,areas};
-    obstacles.areas.push(spanArea(center,center,6*unit));
-    if(textX!==null)obstacles.areas.push(spanArea(center,pt(center.x,axisY),0.5*unit));
-    if(textY!==null)obstacles.areas.push(spanArea(center,pt(axisX,center.y),0.5*unit));
-    if(textX!==null){
-     dashes(center,pt(center.x,axisY),unit,opaque(0.85*guide),items);
-     const placed=xLabel(center,axisY,textX,stage,obstacles);
-     if(placed){
-      obstacles.areas.push(textArea(placed[0],placed[1],placed[2],Array.from(textX).length*CHAR_WIDTH*unit,tall));
-      items.push(item(label(placed[0],textX,placed[1],placed[2]),'l',opaque(guide)));
-     }
+    if(screen.axisY!==null&&plan.xLabel){
+     dashes(center,pt(center.x,screen.axisY),unit,opaque(0.85*guide),items);
+     const placed=plan.xLabel[1];
+     if(placed)items.push(item(label(placed[0],plan.xLabel[0],placed[1],placed[2]),'l',opaque(guide)));
     }
-    if(textY!==null){
-     dashes(center,pt(axisX,center.y),unit,opaque(0.85*guide),items);
-     const placed=yLabel(center,axisX,textY,stage,obstacles);
-     if(placed)items.push(item(label(placed[0],textY,placed[1],placed[2]),'l',opaque(guide)));
+    if(screen.axisX!==null&&plan.yLabel){
+     dashes(center,pt(screen.axisX,center.y),unit,opaque(0.85*guide),items);
+     const placed=plan.yLabel[1];
+     if(placed)items.push(item(label(placed[0],plan.yLabel[0],placed[1],placed[2]),'l',opaque(guide)));
     }
    }
    this.spotItems(now,stage,center,spot.alpha,spot.size,items);
+  }
+  planTwo(stage,screen,point,fixed){
+   const {width,height,unit}=stage,tall=TEXT_HEIGHT*unit,letter=CHAR_WIDTH*unit;
+   const lines=this.tracks.slice(0,this.state.dimension).filter(track=>track.target).map(track=>screen.line(track.target));
+   const clear=area=>!lines.some(line=>crossed(grow(area,unit),line));
+   const plan={choices:{xUnder:null,yWest:null,xLabel:null,yLabel:null},xLetter:null,yLetter:null,xLabel:null,yLabel:null},areas=[];
+   if(screen.axisY!==null){
+    const y=screen.axisY,over=pt(width-3*unit,y-5*unit),under=pt(width-3*unit,y+5*unit);
+    const decided=y+5*unit+tall<=height&&(y-5*unit-tall<0||(!clear(textArea(over,'e','e',letter,tall))&&clear(textArea(under,'e','s',letter,tall))));
+    const chosen=fixed&&fixed.xUnder!==null?fixed.xUnder:decided;
+    const at=chosen?under:over,vertical=chosen?'s':'e';
+    plan.choices.xUnder=chosen;
+    plan.xLetter=[at,vertical];
+    areas.push(textArea(at,'e',vertical,letter,tall));
+    areas.push(spanArea(pt(width-7*unit,y-3.5*unit),pt(width-unit,y+3.5*unit),0));
+    areas.push(spanArea(pt(0,y),pt(width,y),0.5*unit));
+   }
+   if(screen.axisX!==null){
+    const x=screen.axisX,east=pt(x+6*unit,2*unit),west=pt(x-6*unit,2*unit);
+    const decided=x-6*unit-letter>=0&&(x+6*unit+letter>width||(!clear(textArea(east,'s','s',letter,tall))&&clear(textArea(west,'e','s',letter,tall))));
+    const chosen=fixed&&fixed.yWest!==null?fixed.yWest:decided;
+    const at=chosen?west:east,horizontal=chosen?'e':'s';
+    plan.choices.yWest=chosen;
+    plan.yLetter=[at,horizontal];
+    areas.push(textArea(at,horizontal,'s',letter,tall));
+    areas.push(spanArea(pt(x-3.5*unit,unit),pt(x+3.5*unit,7*unit),0));
+    areas.push(spanArea(pt(x,0),pt(x,height),0.5*unit));
+   }
+   if(!point)return plan;
+   const center=screen.point(point),coordinates=sketchCoordinates(this.state);
+   const coordinate=index=>index<coordinates.length&&coordinates[index]!=='0'?coordinates[index]:null;
+   const textX=screen.axisY!==null?coordinate(0):null,textY=screen.axisX!==null?coordinate(1):null;
+   const obstacles={lines,areas,marker:spanArea(center,center,6*unit)};
+   if(textX!==null)obstacles.areas.push(spanArea(center,pt(center.x,screen.axisY),0.5*unit));
+   if(textY!==null)obstacles.areas.push(spanArea(center,pt(screen.axisX,center.y),0.5*unit));
+   if(textX!==null){
+    const placed=xLabel(center,screen.axisY,textX,stage,obstacles,fixed?fixed.xLabel:null);
+    if(placed){
+     obstacles.areas.push(textArea(placed[1][0],placed[1][1],placed[1][2],Array.from(textX).length*CHAR_WIDTH*unit,tall));
+     plan.choices.xLabel=placed[0];
+    }
+    plan.xLabel=[textX,placed?placed[1]:null];
+   }
+   if(textY!==null){
+    const placed=yLabel(center,screen.axisX,textY,stage,obstacles,fixed?fixed.yLabel:null);
+    plan.choices.yLabel=placed?placed[0]:null;
+    plan.yLabel=[textY,placed?placed[1]:null];
+   }
+   return plan;
   }
   sceneThree(now,stage,view,shown,phase,items){
    const {width,height,unit,contrast}=stage;

@@ -25,6 +25,7 @@ nav{height:92px;border-bottom:1px solid var(--line);display:flex;align-items:cen
 .hero p{font-size:14px;color:var(--muted);line-height:1.8;margin:0 0 4px}
 .layout{display:grid;grid-template-columns:1.42fr 1fr;gap:20px}
 .card{border:1px solid var(--line);border-radius:17px;padding:26px;background:linear-gradient(145deg,#1b1919,var(--card) 42%);box-shadow:inset 0 0 0 3px #ffffff03;min-width:0}
+.entry{display:flex;flex-direction:column;container-type:inline-size}
 .entry header{display:flex;gap:12px;align-items:center}
 .entry header svg{color:var(--accent)}
 h2{font-size:22px;margin:0}
@@ -37,8 +38,12 @@ h2{font-size:22px;margin:0}
 .segment[aria-pressed=true]:hover{background:var(--accent-hover)}
 .segment:focus-visible{outline-offset:-4px}
 .segment[aria-pressed=true]:focus-visible{outline-color:var(--bg)}
-#size-info{color:var(--muted);font-size:12px}
-.eyebrow{font-size:11px;letter-spacing:.8px;color:var(--muted);margin:28px 0 15px}
+.actions{display:flex;flex-wrap:wrap;gap:10px 20px;margin-left:auto}
+.actions .button{white-space:nowrap}
+.eyebrow{font-size:11px;letter-spacing:.8px;color:var(--muted);margin:0}
+#system-form{flex:1;display:flex;flex-direction:column}
+.grid-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin:28px 0 15px}
+#size-info{color:var(--muted);font-size:12px;line-height:14px}
 .equation{display:flex;align-items:center;gap:7px;margin-bottom:10px;min-width:0}
 .number{width:22px;font-size:12px;color:var(--muted);flex-shrink:0;font-variant-numeric:tabular-nums}
 .number.complete{color:var(--accent)}
@@ -52,15 +57,13 @@ h2{font-size:22px;margin:0}
 .field input{width:100%;min-width:0;border:0;background:transparent;color:var(--text);text-align:center;outline:none;padding:9px 4px;font-size:17px}
 .suffix{padding-right:10px;color:var(--muted);font-size:13px}
 .operator{color:var(--muted);width:13px;text-align:center;flex-shrink:0}
-.graph{display:flex;align-items:center;gap:16px;min-height:178px;margin:0 0 14px;padding:4px 16px 4px 4px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
-.graph.three{min-height:122px}
-.graph svg{display:block;flex:0 0 auto;width:46%;max-width:336px;height:168px;overflow:hidden;fill:none;stroke:none;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;font-size:12px;font-weight:400;forced-color-adjust:none;user-select:none;-webkit-user-select:none;pointer-events:none}
-.graph.three svg{max-width:176px;height:112px}
-#help{flex:1;min-width:0;margin:0;padding:8px 0;line-height:1.55;font-size:12px;color:var(--muted);text-wrap:pretty;overflow-wrap:break-word}
+.graph{flex:1 0 auto;display:flex;align-items:center;gap:16px;min-height:240px;margin:0;padding:4px 16px 4px 4px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.graph.three{min-height:184px}
+.graph svg{display:block;flex:0 0 auto;align-self:stretch;width:46%;max-width:336px;height:auto;contain:size;overflow:hidden;fill:none;stroke:none;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;font-size:12px;font-weight:400;forced-color-adjust:none;user-select:none;-webkit-user-select:none;pointer-events:none}
+#help{flex:1;min-width:0;margin:0;padding:8px 0;line-height:1.55;font-size:12px;color:var(--muted);overflow-wrap:break-word}
 #help .keep{white-space:nowrap}
 #help.error{color:var(--error)}
 #help.reading{color:var(--text)}
-.actions{display:flex;gap:10px;flex-wrap:wrap}
 .button{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;padding:12px 14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;min-height:44px}
 .button:hover{background:var(--soft)}
 .button:focus-visible{outline-offset:-5px}
@@ -68,7 +71,6 @@ h2{font-size:22px;margin:0}
 .button.primary:hover{background:var(--accent-hover)}
 .button.primary:focus-visible{outline-color:var(--bg)}
 .button[aria-disabled=true],.button[aria-disabled=true]:hover{background:var(--disabled);border-color:var(--disabled);color:var(--disabled-text);cursor:default}
-.clear{margin-left:auto}
 .solution{background:var(--accent);border-color:var(--solution-line);color:var(--bg);display:flex;flex-direction:column;min-height:478px;scroll-margin-top:16px}
 .solution:focus-visible{outline-color:var(--accent);outline-offset:3px}
 .solution .eyebrow{color:var(--bg);margin:0 0 22px}
@@ -187,8 +189,10 @@ footer{flex-direction:column;align-items:flex-start}
 .keys{justify-content:flex-start}
 }
 @media(max-width:600px){
+.graph,.graph.three{min-height:0}
 .graph{flex-direction:column;align-items:stretch;gap:0;padding:4px}
-.graph svg,.graph.three svg{width:auto;max-width:none}
+.graph svg{width:auto;max-width:none;height:196px}
+.graph.three svg{height:140px}
 #help{min-height:calc(3 * 1.55em + 18px);padding:10px 10px 8px}
 .author-text{flex-direction:column;align-items:flex-start;gap:0}
 .author-sep{display:none}
@@ -214,8 +218,6 @@ main{padding:0 16px 20px}
 .field input{font-size:16px}
 .number{width:18px}
 .operator{width:9px}
-.actions .primary{flex:1 1 100%}
-.clear{margin-left:0}
 .preview{padding:12px 14px}
 .preview-line{font-size:16px}
 .solution .result-actions .button{padding:12px 8px;gap:6px}
@@ -233,6 +235,16 @@ main{padding:0 16px 20px}
 .summary-lines p{font-size:16px}
 #methods{gap:4px}
 #methods .segment{padding:0 6px;font-size:12px}
+}
+@container (max-width:479px){
+.size-row,.actions{column-gap:8px}
+.size-row .segment{min-width:60px;padding:0 10px}
+.actions .button{padding:12px 8px;gap:6px}
+}
+@container (max-width:379px){
+.size-row .track,.actions{flex:1 1 100%}
+.size-row .segment,.actions .button{flex:1 1 0}
+.actions{margin-left:0;column-gap:10px}
 }
 @media(forced-colors:active){
 :focus-visible,.segment:focus-visible,.button:focus-visible,.summary-go:focus-visible,.segment[aria-pressed=true]:focus-visible,.button.primary:focus-visible{outline:2px solid Highlight;outline-offset:2px}

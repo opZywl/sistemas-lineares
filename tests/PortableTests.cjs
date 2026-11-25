@@ -758,6 +758,8 @@ const emRepouso=(sketch,largura,altura)=>{const motion=new G.Motion();motion.upd
 const distancia=(a,b)=>Math.sqrt((b.x-a.x)**2+(b.y-a.y)**2);
 const ehReta=item=>item.ink==='r0'||item.ink==='r1'||item.ink==='r2';
 const textos=itens=>itens.filter(item=>item.shape.kind==='text').map(item=>item.shape.text);
+const ancoras=itens=>itens.filter(item=>item.shape.kind==='text').map(item=>[item.shape.text,item.shape.horizontal,item.shape.vertical]);
+const mesmosTextos=(uma,outra)=>mesmoValor(uma.map(entrada=>entrada[0]).sort(),outra.map(entrada=>entrada[0]).sort());
 function mesmoValor(a,b){
  if(typeof a==='number'||typeof b==='number')return a===b;
  if(Array.isArray(a)||Array.isArray(b))return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((valor,indice)=>mesmoValor(valor,b[indice]));
@@ -989,10 +991,12 @@ grafico('ponto_desliza_do_fantasma_quando_a_equacao_volta',()=>{
  const corrigido=exemplo2();
  corrigido.rows[1]=reta(1,-1,-3);
  corrigido.verdict={kind:'point',at:[2/3,11/3,0],coordinates:['2/3','11/3']};
- motion.update(corrigido,10.1,true);
  const ponto=itens=>itens.find(item=>item.ink==='o');
+ const fantasma=ponto(motion.scene(10.1,252,120,1,false));
+ motion.update(corrigido,10.1,true);
  const inicio=ponto(motion.scene(10.1,252,120,1,false));
  check(inicio!==undefined&&inicio.shape.radius===4.25,'o ponto volta inteiro, sem nascer de novo');
+ check(fantasma!==undefined&&mesmoValor(inicio.shape.center,fantasma.shape.center),'o deslize começa onde o fantasma estava');
  const meio=ponto(motion.scene(10.1+G.MORPH/2,252,120,1,false)),fim=ponto(emRepouso(corrigido,252,120));
  check(!mesmoValor(meio.shape.center,fim.shape.center),'o ponto desliza até o lugar novo');
  check(mesmoValor(ponto(motion.scene(20,252,120,1,false)),fim),'o ponto para no lugar certo');
@@ -1086,10 +1090,20 @@ grafico('animacao_completa_chega_na_cena_de_repouso',()=>{
  for(let indice=0;indice<300;indice++){
   const dimensao=2+indice%2,antes=preencherSistema(dimensao,sistemaSorteado(sorteio,dimensao)).sketch(),depois=preencherSistema(dimensao,sistemaSorteado(sorteio,dimensao)).sketch();
   const [largura,altura]=dimensao===2?[267,128]:[163,78],motion=new G.Motion(),contraste=indice%5===0;
+  const fixo=new G.Motion();
+  fixo.update(depois,0,false);
+  const parado=fixo.scene(1e9,largura,altura,1,contraste),ancorasParadas=ancoras(parado);
   motion.update(antes,0,false);
   motion.update(depois,1,true);
-  let agora=1;
+  let agora=1,anteriores=null;
+  const trocas=ancorasParadas.map(()=>0);
   while(motion.busy(agora,contraste)){
+   const ancorasDoQuadro=ancoras(motion.scene(agora,largura,altura,1,contraste));
+   if(mesmosTextos(ancorasDoQuadro,ancorasParadas)){
+    if(anteriores)anteriores.forEach((antes,posicao)=>{if(!mesmoValor(antes,ancorasDoQuadro[posicao]))trocas[posicao]++;});
+    check(trocas.every(vezes=>vezes<=1),`um rótulo trocou de lado mais de uma vez até o quadro ${agora} da animação ${indice}`);
+    anteriores=ancorasDoQuadro;
+   }
    for(const item of motion.scene(agora,largura,altura,1,contraste)){
     check(item.alpha>=0&&item.alpha<=1,`alfa fora de 0 a 1 no quadro ${agora}`);
     check(pontosDoItem(item).every(ponto=>Number.isFinite(ponto.x)&&Number.isFinite(ponto.y)),`coordenada inválida no quadro ${agora}`);
@@ -1098,9 +1112,7 @@ grafico('animacao_completa_chega_na_cena_de_repouso',()=>{
    quadros++;
    check(agora<10,'a animação precisa terminar');
   }
-  const fixo=new G.Motion();
-  fixo.update(depois,0,false);
-  check(mesmoValor(motion.scene(agora,largura,altura,1,contraste),fixo.scene(1e9,largura,altura,1,contraste)),`a animação ${indice} termina na cena de repouso`);
+  check(mesmoValor(motion.scene(agora,largura,altura,1,contraste),parado),`a animação ${indice} termina na cena de repouso`);
  }
 });
 
@@ -1123,8 +1135,12 @@ const ids=[...html.matchAll(/<[a-z][^>]*\sid="([^"]+)"/gi)].map(m=>m[1]);
 check(new Set(ids).size===ids.length,'IDs únicos: ícones e controles não podem colidir');
 check(!/__STYLE__|__FONT__|__SOLVER__|__GRAPH__|__APP__|__ICONS__/.test(html),'arquivo offline completo');
 for(const id of ['icon-bulb','icon-arrow-left','think-open','copy','think','think-title','methods','copy-steps','steps','live','summary','footer-links','tip-disabled','graph','plot','help'])check(ids.includes(id),`elemento na versão offline: #${id}`);
-check(html.includes(`<svg id="plot" role="img" aria-label="${G.GRAPH_NAME}" aria-describedby="help"`),'gráfico como imagem com nome e descrição');
-check(html.indexOf('id="equations"')<html.indexOf('id="graph"')&&html.indexOf('id="graph"')<html.indexOf('<figcaption id="help"')&&html.indexOf('<figcaption id="help"')<html.indexOf('class="actions"'),'painel do gráfico entre as equações e os botões, com a legenda como figcaption');
+check(html.includes(`<svg id="plot" role="img" aria-label="${G.GRAPH_NAME}" aria-describedby="plot-caption" focusable="false"><desc id="plot-caption"></desc></svg>`),'gráfico como imagem com nome e descrição pela legenda do desenho');
+{
+ const ordem=['id="size2"','id="size3"','class="actions"','id="example"','id="clear"','class="grid-head"','COEFICIENTES E TERMOS INDEPENDENTES','id="size-info"','id="equations"','id="graph"','<figcaption id="help"'].map(trecho=>html.indexOf(trecho));
+ check(ordem.every((posicao,indice)=>posicao>=0&&(indice===0||posicao>ordem[indice-1])),'Usar exemplo e Limpar na linha do tamanho, antes dos campos; dimensão na linha do rótulo; painel do gráfico depois das equações, com a legenda como figcaption');
+ check(html.includes('<figcaption id="help"></figcaption></figure></form>'),'o painel do gráfico fecha o formulário, sem botões embaixo');
+}
 check(html.indexOf('root.LinearSolver=api')<html.indexOf('root.LinearGraph=api')&&html.indexOf('root.LinearGraph=api')<html.indexOf('const graph=node?'),'graph.js entre o solver e o app');
 check((html.match(/aria-live=/g)||[]).length===1,'uma única região aria-live');
 check(html.includes('<title>Sistemas Lineares · Lucas Lima</title>'),'título da janela');

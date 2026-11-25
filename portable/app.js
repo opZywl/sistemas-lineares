@@ -496,7 +496,7 @@
  const saveMethod=key=>{try{localStorage.setItem(STORAGE,key);}catch(_){}};
  model.setMethod(readMethod());
 
- const help=$('help'),output=$('output'),live=$('live'),solution=$('solution'),figure=$('graph'),plot=$('plot');
+ const help=$('help'),output=$('output'),live=$('live'),solution=$('solution'),figure=$('graph'),plot=$('plot'),plotCaption=$('plot-caption');
  const inputs=[],fields=[],numbers=[],operators=[],rows=[];
  let composing=null,idleTimer=0,lastAnnounced=null,shownErrors=new Set(),cardKey='',cardKind='',liveToggle=false,opener=null,hoveredMethod=null,focusedMethod=null,fitFrame=0;
 
@@ -608,9 +608,10 @@
   if(!reducedMotion()&&motion.busy(now,forcedColors())&&plot.getClientRects().length)graphFrame=requestAnimationFrame(drawGraph);
  }
  function refreshGraph(){
-  const animate=!reducedMotion();
+  const animate=!reducedMotion(),sketch=model.sketch();
   figure.classList.toggle('three',model.dimension()===3);
-  motion.update(model.sketch(),clock(),animate);
+  setText(plotCaption,graph.caption(sketch));
+  motion.update(sketch,clock(),animate);
   if(!animate)motion.settle();
   if(!graphFrame)drawGraph();
  }
@@ -621,11 +622,10 @@
  onMediaChange(contrastQuery,repaintGraph);
  document.fonts?.ready?.then(()=>{ruler=undefined;widths.clear();repaintGraph();});
 
- const KEEP_LIMIT=16,WRAP_LIMIT=22;
- const wrapped=word=>word.length>WRAP_LIMIT?word.split('/').flatMap((piece,index,pieces)=>index<pieces.length-1?[`${piece}/`,element('wbr')]:[piece]):[word];
+ const KEEP_LIMIT=16;
  function setCaption(text){
   if(help.textContent===text)return;
-  const parts=text.split(/(\([^()]+\)|\S+ = \S+)/).flatMap((part,index)=>index%2&&part.length<=KEEP_LIMIT?[element('span','keep',part)]:part.split(/(\s+)/).flatMap(wrapped));
+  const parts=text.split(/(\([^()]+\)|\S+ = \S+)/).map((part,index)=>index%2&&part.length<=KEEP_LIMIT?element('span','keep',part):part);
   help.replaceChildren(...parts.filter(part=>part!==''));
  }
  function speak(text){

@@ -132,6 +132,31 @@ const GRAFICO=`(()=>{
   texturas:[...svg.querySelectorAll('pattern')].map(no=>({id:no.id,largura:no.getAttribute('width'),altura:no.getAttribute('height'),raio:no.firstChild.getAttribute('r'),cor:no.firstChild.getAttribute('fill'),opacidade:no.firstChild.getAttribute('fill-opacity')}))
  };
 })()`;
+const CONTROLES=`(()=>{
+ const q=seletor=>document.querySelector(seletor),caixa=elemento=>{const r=elemento.getBoundingClientRect();return {esquerda:r.left,topo:r.top,direita:r.right,base:r.bottom,largura:r.width,altura:r.height};};
+ const cartao=q('.entry'),estilo=getComputedStyle(cartao),borda=lado=>parseFloat(estilo['padding'+lado])+parseFloat(estilo['border'+lado+'Width']),fora=caixa(cartao);
+ return {
+  linha:[...q('.size-row').children].map(item=>item.className),
+  botoes:[...q('.actions').children].map(item=>item.id),
+  cabecalho:[...q('.grid-head').children].map(item=>item.id||item.className),
+  dentro:{esquerda:fora.esquerda+borda('Left'),topo:fora.topo+borda('Top'),direita:fora.direita-borda('Right'),base:fora.base-borda('Bottom')},
+  trilho:caixa(q('.size-row .track')),
+  exemplo:caixa(q('#example')),
+  limpar:caixa(q('#clear')),
+  cortados:['#size2','#size3','#example','#clear'].filter(seletor=>q(seletor).scrollWidth>q(seletor).clientWidth),
+  rotulo:caixa(q('.grid-head .eyebrow')),
+  dimensao:caixa(q('#size-info')),
+  texto:q('#size-info').textContent,
+  painel:caixa(q('#graph')),
+  plot:caixa(q('#plot')),
+  botoesDoResultado:caixa(q('#copy')),
+  rodape:q('footer').getBoundingClientRect().bottom+scrollY,
+  rolagemLateral:document.documentElement.scrollWidth,
+  janela:[innerWidth,innerHeight]
+ };
+})()`;
+const meio=caixa=>(caixa.topo+caixa.base)/2;
+const sobrepoe=(uma,outra)=>Math.min(uma.direita,outra.direita)-Math.max(uma.esquerda,outra.esquerda)>0.5&&Math.min(uma.base,outra.base)-Math.max(uma.topo,outra.topo)>0.5;
 const retasDoGrafico=grafico=>grafico.itens.filter(item=>item.tag==='line'&&item.atributos['stroke-width']==='2');
 const planosDoGrafico=grafico=>grafico.itens.filter(item=>item.tag==='polygon'&&item.atributos['fill-opacity']==='0.26');
 const pontoDoGrafico=grafico=>grafico.itens.filter(item=>item.tag==='circle'&&item.atributos.r==='4.25');
@@ -321,6 +346,7 @@ async function principal(){
   const focar=(linha,coluna,selecionar=true)=>avaliar(`(()=>{const entrada=document.getElementById('a-${linha}-${coluna}');entrada.focus();${selecionar?'entrada.select();':''}return true;})()`);
   const ultimaFala=async()=>{const falas=(await estado()).falas;return falas[falas.length-1]??null;};
   const grafico=()=>avaliar(GRAFICO);
+  const controles=()=>avaliar(CONTROLES);
   const preencher=linhas=>avaliar(`(()=>{const linhas=${JSON.stringify(linhas)},dimensao=linhas.length;linhas.forEach((valores,linha)=>valores.forEach((valor,coluna)=>{const entrada=document.getElementById('a-'+linha+'-'+(coluna===dimensao?3:coluna));entrada.focus();entrada.value=valor;entrada.dispatchEvent(new Event('input',{bubbles:true}));}));document.activeElement.blur();return true;})()`);
   const imagem=async()=>lerPng(Buffer.from((await pagina('Page.captureScreenshot',{format:'png'})).data,'base64'));
   const linhasDaLegenda=()=>avaliar(`(()=>{const faixa=document.createRange();faixa.selectNodeContents(document.getElementById('help'));return new Set([...faixa.getClientRects()].filter(retangulo=>retangulo.width>0).map(retangulo=>Math.round(retangulo.top))).size;})()`);
@@ -423,9 +449,9 @@ async function principal(){
      cortado:getComputedStyle(svg).overflow
     };
    })()`);
-   igual(painel.ordem,['eyebrow','equations','graph','actions'],'painel entre as equações e os botões');
+   igual(painel.ordem,['grid-head','equations','graph'],'painel logo abaixo das equações, fechando o formulário');
    igual([painel.figura,painel.filhos],['figure',['svg#plot','figcaption#help']],'figura com o gráfico e a legenda');
-   igual(painel.svg,['img',G.GRAPH_NAME,'help'],'gráfico é uma imagem com nome e descrição');
+   igual(painel.svg,['img',G.GRAPH_NAME,'plot-caption'],'gráfico é uma imagem com nome e descrição');
    igual(painel.legenda,['figcaption',null,null],'a legenda não é região viva');
    igual(painel.visual,['rgb(17, 16, 16)','rgb(53, 49, 55)','1px','12px'],'painel com o fundo e a borda do tema');
    igual(painel.cortado,'hidden','nada do gráfico vaza da área');
@@ -436,9 +462,32 @@ async function principal(){
    igual(textosDoGrafico(vazio),['x','y'],'eixos x e y');
    conferirDesenho(vazio,emRepouso(G.blank(2),vazio),false,'gráfico vazio');
    igual(retasDoGrafico(vazio).length,0,'nenhuma reta sem equação');
-   check(Math.abs(vazio.plot.altura-168)<0.5&&vazio.plot.largura>200,`área do gráfico 2×2: ${vazio.plot.largura}×${vazio.plot.altura}`);
+   check(Math.abs(vazio.plot.altura-230)<0.5&&vazio.plot.largura>250,`área do gráfico 2×2: ${vazio.plot.largura}×${vazio.plot.altura}`);
    check(vazio.legenda.esquerda>=vazio.plot.direita+15,'legenda à direita do gráfico');
    igual(vazio.pendentes,0,'nenhum quadro pedido parado');
+  });
+
+  await etapa('controles na linha do tamanho e ordem do Tab',async()=>{
+   const atual=await controles();
+   igual(atual.linha,['track','actions'],'Usar exemplo e Limpar na linha do seletor de tamanho');
+   igual(atual.botoes,['example','clear'],'Usar exemplo antes de Limpar');
+   igual(atual.cabecalho,['eyebrow','size-info'],'a dimensão na linha do rótulo dos coeficientes');
+   check([atual.exemplo,atual.limpar].every(botao=>Math.abs(meio(botao)-meio(atual.trilho))<1),'botões centralizados na altura do seletor');
+   check(Math.abs(atual.limpar.direita-atual.dentro.direita)<0.5,`Limpar termina na margem direita do cartão (${atual.limpar.direita} px, margem em ${atual.dentro.direita} px)`);
+   check(Math.abs(atual.limpar.esquerda-atual.exemplo.direita-20)<0.5,`20 px entre Usar exemplo e Limpar (${atual.limpar.esquerda-atual.exemplo.direita} px)`);
+   check(atual.exemplo.esquerda>=atual.trilho.direita+18,'os botões não encostam no seletor');
+   igual(atual.texto,'2 equações · 2 incógnitas','texto da dimensão');
+   check(Math.abs(atual.dimensao.direita-atual.dentro.direita)<0.5&&Math.abs(meio(atual.dimensao)-meio(atual.rotulo))<1&&atual.dimensao.esquerda>atual.rotulo.direita,'dimensão na linha do rótulo, alinhada à direita');
+   check(Math.abs(atual.painel.base-atual.dentro.base)<0.5&&Math.abs(atual.painel.base-atual.botoesDoResultado.base)<0.5,`o painel do gráfico vai até o fim do cartão, na base dos botões do resultado (${atual.painel.base}, ${atual.dentro.base}, ${atual.botoesDoResultado.base})`);
+   check(atual.rodape<=atual.janela[1],`rodapé visível em 1280×900 (termina em ${atual.rodape} px)`);
+   await avaliar(`document.getElementById('size2').focus()`);
+   const ordem=['size2'];
+   for(let passo=0;passo<4;passo++){await tecla('Tab');ordem.push((await estado()).ativo);}
+   igual(ordem,['size2','size3','example','clear','a-0-0'],'o Tab segue a ordem visual: seletor, Usar exemplo, Limpar e campos');
+   await tecla('Tab',8);
+   igual((await estado()).ativo,'clear','Shift+Tab volta do primeiro campo para Limpar');
+   await avaliar('document.activeElement.blur()');
+   igual((await estado()).falas,[],'percorrer os controles com o Tab não anuncia nada');
   });
 
   await etapa('resolução ao vivo digitando o exemplo',async()=>{
@@ -478,6 +527,7 @@ async function principal(){
    await tecla('Enter');
    atual=await estado();
    igual([atual.ativo,atual.ajuda,atual.ajudaErro],['a-1-3',TEXTS.ONLY_THIS_FIELD,false],'Enter no único campo vazio avisa sem mover');
+   igual((await acessivel('#plot')).descricao,'Preencha a equação 2 para ver onde as retas se cruzam.','com aviso na dica, o gráfico segue descrito pela legenda do desenho');
    igual(atual.falas,[TEXTS.ONLY_THIS_FIELD],'aviso do único campo anunciado');
    await digitar('1');
    atual=await estado();
@@ -546,6 +596,7 @@ async function principal(){
    igual(atual.ativo,'a-0-1','Tab segue para o próximo campo');
    igual([atual.campos[0][0].erro,atual.campos[0][0].invalido,atual.campos[0][0].mensagem],[true,'true','help'],'erro revelado ao sair do campo');
    igual([atual.ajuda,atual.ajudaErro],['Equação 1, coeficiente de x: Número inválido.',true],'dica vermelha');
+   igual((await acessivel('#plot')).descricao,G.INTRO_TWO,'com erro na dica, o gráfico segue descrito pela legenda do desenho');
    igual(atual.falas.slice(falas),['Equação 1, coeficiente de x: Número inválido.'],'erro anunciado uma vez');
    igual(await avaliar(`getComputedStyle(document.querySelector('#a-0-0').parentElement).borderTopColor`),'rgb(255, 153, 145)','borda de erro');
    igual(await avaliar(`[document.querySelector('#a-0-0').getAttribute('aria-describedby'),document.querySelector('#a-0-1').getAttribute('aria-describedby')]`),['help','field-description'],'campo com erro descrito pela dica');
@@ -599,6 +650,7 @@ async function principal(){
    atual=await estado();
    igual([atual.campos[0][3].valor,atual.esmaecido,atual.valores],['5^1',false,['2','1']],'potência digitada depois da composição');
    igual([atual.ajuda,await avaliar(`document.getElementById('help').className`),await avaliar(`getComputedStyle(document.getElementById('help')).color`)],['Este campo vale 5.','reading','rgb(243, 240, 247)'],'dica mostra o valor lido da potência');
+   igual((await acessivel('#plot')).descricao,'As retas se cruzam em (2, 1): esse ponto é a solução do sistema.','com a leitura do campo na dica, o gráfico segue descrito pela legenda do desenho');
    await tecla('Enter');
    igual((await estado()).ativo,'a-0-3','Enter fora da composição resolve');
   });
@@ -715,7 +767,7 @@ async function principal(){
    await esperar(async()=>(await medida()).foco===null,'voltar ao valor curto');
   });
 
-  let repouso2x2='',botoes2x2=0;
+  let repouso2x2='',botoes2x2=0,cartao2x2=0;
   await etapa('gráfico do exemplo 2×2',async()=>{
    await clicar('#clear');
    const antes=(await grafico()).pedidos;
@@ -741,6 +793,7 @@ async function principal(){
    check(um.caixa.x+um.caixa.medida<=Number(eixoY.x1)-4.95&&Math.abs(Number(um.atributos.y)-(atual.algarismos/2)-Number(centro.cy))<0.05,'o 1 fica à esquerda do eixo y, na altura do ponto');
    repouso2x2=atual.assinatura;
    botoes2x2=atual.acoes.topo-atual.cartao.topo;
+   cartao2x2=atual.cartao.altura;
   });
 
   await etapa('gráfico do exemplo 3×3',async()=>{
@@ -749,7 +802,7 @@ async function principal(){
    const atual=await grafico(),texto='Os três planos se cruzam em (1, 2, 3): esse ponto é a solução do sistema.';
    igual((await estado()).ajuda,texto,'legenda do 3×3');
    igual(await acessivel('#plot'),{papel:'image',nome:G.GRAPH_NAME,descricao:texto},'descrição acessível do 3×3');
-   check(atual.tres&&Math.abs(atual.plot.altura-112)<0.5,`área do gráfico 3×3: ${atual.plot.largura}×${atual.plot.altura}`);
+   check(atual.tres&&Math.abs(atual.plot.altura-174)<0.5&&atual.plot.largura>250,`área do gráfico 3×3: ${atual.plot.largura}×${atual.plot.altura}`);
    igual(planosDoGrafico(atual).map(item=>item.atributos.fill).sort(),[G.PALETTE.r0,G.PALETTE.r1,G.PALETTE.r2].sort(),'três planos translúcidos nas cores das equações');
    igual(atual.itens.filter(item=>item.tag==='line'&&item.atributos.stroke===G.PALETTE.m).length,3,'as retas de encontro dos planos');
    igual(pontoDoGrafico(atual).length,1,'o ponto da solução');
@@ -759,6 +812,10 @@ async function principal(){
    check(Number(y.atributos.y)-(G.TEXT_HEIGHT+atual.algarismos)/2>=-0.01,'o rótulo y no alto da caixa é empurrado para dentro da área');
    igual((await estado()).numerosCor,['rgb(206, 169, 243)','rgb(125, 211, 192)','rgb(247, 178, 140)'],'números nas cores dos planos');
    igual(atual.acoes.topo-atual.cartao.topo,botoes2x2,'os botões não saem do lugar ao trocar 2×2 e 3×3');
+   igual(atual.cartao.altura,cartao2x2,'o cartão tem a mesma altura no 2×2 e no 3×3');
+   const fim=await controles();
+   check(Math.abs(fim.painel.base-fim.dentro.base)<0.5&&Math.abs(fim.painel.base-fim.botoesDoResultado.base)<0.5,'no 3×3 o painel também vai até o fim do cartão');
+   igual(fim.texto,'3 equações · 3 incógnitas','dimensão do 3×3 na linha do rótulo');
    await clicar('#size2');
    igual((await grafico()).assinatura,repouso2x2,'o 2×2 volta igual');
   });
@@ -952,20 +1009,43 @@ async function principal(){
   await etapa('legenda longa cabe no painel',async()=>{
    await pagina('Emulation.setDeviceMetricsOverride',{width:851,height:900,deviceScaleFactor:1,mobile:false});
    const medir=()=>avaliar(`(()=>{const ajuda=document.getElementById('help'),caixa=ajuda.getBoundingClientRect(),estilo=getComputedStyle(ajuda),faixa=document.createRange();faixa.selectNodeContents(ajuda);const linhas=[...faixa.getClientRects()].filter(retangulo=>retangulo.width>0);return {texto:ajuda.textContent,coluna:[caixa.left+parseFloat(estilo.paddingLeft),caixa.right-parseFloat(estilo.paddingRight)],esquerda:Math.min(...linhas.map(retangulo=>retangulo.left)),direita:Math.max(...linhas.map(retangulo=>retangulo.right)),juntos:[...ajuda.querySelectorAll('.keep')].map(trecho=>[trecho.textContent,getComputedStyle(trecho).whiteSpace]),quebras:ajuda.querySelectorAll('wbr').length};})()`);
-   for(const [linhas,legenda,quebras] of [
-    [[['7654321','0','-123456'],['0','7654321','234567']],'As retas se cruzam em (-123456/7654321, 234567/7654321): esse ponto é a solução do sistema.',0],
-    [[['987654321011','0','-123456789012'],['0','7','5']],'As retas se cruzam em (-123456789012/987654321011, 5/7): esse ponto é a solução do sistema.',1],
-    [[['1','1','2'],['0','0','-123456789012/987654321011']],'A equação 2 diz que 0 = -123456789012/987654321011, o que nunca acontece: o sistema não tem solução.',1]
+   for(const [linhas,legenda] of [
+    [[['7654321','0','-123456'],['0','7654321','234567']],'As retas se cruzam em (-123456/7654321, 234567/7654321): esse ponto é a solução do sistema.'],
+    [[['987654321011','0','-123456789012'],['0','7','5']],'As retas se cruzam em (-123456789012/987654321011, 5/7): esse ponto é a solução do sistema.'],
+    [[['1','1','2'],['0','0','-123456789012/987654321011']],'A equação 2 diz que 0 = -123456789012/987654321011, o que nunca acontece: o sistema não tem solução.']
    ]){
     await clicar('#clear');
     await preencher(linhas);
     const medida=await medir();
     igual(medida.texto,legenda,'legenda com valores longos');
     check(medida.esquerda>=medida.coluna[0]-0.5&&medida.direita<=medida.coluna[1]+0.5,`a legenda fica dentro da sua coluna: texto de ${medida.esquerda} a ${medida.direita} px, coluna de ${medida.coluna[0]} a ${medida.coluna[1]} px`);
-    igual([medida.juntos,medida.quebras],[[],quebras],'coordenadas longas quebram entre si, e as frações enormes depois da barra');
+    igual([medida.juntos,medida.quebras],[[],0],'coordenadas longas quebram só nos espaços, sem <wbr> depois da barra, como nos apps nativos');
    }
    await clicar('#example');
    igual((await medir()).juntos,[['(2, 1)','nowrap']],'coordenadas curtas ficam na mesma linha');
+   await pagina('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+  });
+
+  await etapa('larguras intermediárias sem sobreposição',async()=>{
+   for(const largura of [470,480,500,520,600,601,612,613,700,850,851,863,864,900,1000,1007,1008]){
+    await pagina('Emulation.setDeviceMetricsOverride',{width:largura,height:900,deviceScaleFactor:1,mobile:false});
+    for(const dimensao of [2,3]){
+     await avaliar(`document.getElementById('size${dimensao}').click()`);
+     const atual=await controles(),onde=`${largura} px no ${dimensao}×${dimensao}`,linha=[atual.trilho,atual.exemplo,atual.limpar],largo=atual.dentro.direita-atual.dentro.esquerda;
+     check(atual.rolagemLateral<=largura,`${onde}: sem rolagem horizontal (${atual.rolagemLateral} px)`);
+     check(linha.every(item=>item.esquerda>=atual.dentro.esquerda-0.5&&item.direita<=atual.dentro.direita+0.5),`${onde}: seletor e botões dentro do cartão`);
+     check(!sobrepoe(atual.trilho,atual.exemplo)&&!sobrepoe(atual.trilho,atual.limpar)&&!sobrepoe(atual.exemplo,atual.limpar),`${onde}: seletor e botões sem sobreposição`);
+     check(atual.cortados.length===0&&[atual.exemplo,atual.limpar].every(botao=>botao.altura<=50),`${onde}: rótulos inteiros e numa linha só (${atual.cortados.join(', ')})`);
+     if(largo>379)check(linha.every(item=>Math.abs(meio(item)-meio(atual.trilho))<1)&&Math.abs(atual.limpar.direita-atual.dentro.direita)<0.5,`${onde}: com ${largo} px no cartão, seletor, Usar exemplo e Limpar na mesma linha, com Limpar na margem direita`);
+     else check(atual.exemplo.topo>=atual.trilho.base&&Math.abs(atual.trilho.largura-largo)<0.5&&Math.abs(atual.exemplo.esquerda-atual.dentro.esquerda)<0.5&&Math.abs(atual.limpar.direita-atual.dentro.direita)<0.5,`${onde}: com ${largo} px no cartão, seletor e botões ocupam a largura, um embaixo do outro`);
+     if(largo>479)check(Math.abs(atual.limpar.esquerda-atual.exemplo.direita-20)<0.5,`${onde}: 20 px entre Usar exemplo e Limpar`);
+     const naLinha=Math.abs(meio(atual.dimensao)-meio(atual.rotulo))<1&&Math.abs(atual.dimensao.direita-atual.dentro.direita)<0.5,embaixo=atual.dimensao.topo>=atual.rotulo.base&&Math.abs(atual.dimensao.esquerda-atual.dentro.esquerda)<0.5;
+     check(!sobrepoe(atual.rotulo,atual.dimensao)&&(naLinha||(largo<=479&&embaixo)),`${onde}: dimensão na linha do rótulo, à direita, ou embaixo dele, à esquerda`);
+     const altura=largura>600?(dimensao===2?230:174):(dimensao===2?196:140);
+     check(atual.plot.altura>=altura-0.5,`${onde}: gráfico com ${atual.plot.altura} px de altura, esperado ao menos ${altura} px`);
+    }
+   }
+   await avaliar(`document.getElementById('size2').click()`);
    await pagina('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
   });
 
@@ -989,7 +1069,7 @@ async function principal(){
    const painel=await grafico();
    igual(await linhasDaLegenda(),2,'no celular a legenda do exemplo ocupa duas linhas');
    igual([painel.figura.altura,painel.acoes.topo-painel.cartao.topo],[apresentacao.figura.altura,apresentacao.acoes.topo-apresentacao.cartao.topo],'o painel reserva três linhas de legenda: os botões não pulam quando ela muda');
-   check(Math.abs(painel.plot.largura-(painel.figura.largura-10))<1&&Math.abs(painel.plot.altura-168)<0.5,`no celular o gráfico ocupa a largura do painel: ${JSON.stringify(painel.plot)}`);
+   check(Math.abs(painel.plot.largura-(painel.figura.largura-10))<1&&Math.abs(painel.plot.altura-196)<0.5,`no celular o gráfico ocupa a largura do painel: ${JSON.stringify(painel.plot)}`);
    check(painel.legenda.topo>=painel.plot.base-0.5&&painel.legenda.base<=painel.figura.base,'no celular a legenda fica embaixo do gráfico');
    igual(retasDoGrafico(painel).length,2,'as retas no celular');
    await avaliar('scrollTo(0,0)');
@@ -1009,9 +1089,17 @@ async function principal(){
    medida=await medir();
    check(medida.cartao[0]>=-1&&medida.cartao[0]<medida.altura/2,`Ver resultado leva ao cartão: ${JSON.stringify(medida.cartao)}`);
    await avaliar('scrollTo(0,0)');
+   const celular=await controles();
+   check(Math.abs(celular.trilho.largura-(celular.dentro.direita-celular.dentro.esquerda))<0.5,'no celular o seletor ocupa a largura do cartão');
+   check(celular.exemplo.topo>=celular.trilho.base&&Math.abs(celular.exemplo.topo-celular.limpar.topo)<0.5&&Math.abs(celular.exemplo.esquerda-celular.dentro.esquerda)<0.5&&Math.abs(celular.limpar.direita-celular.dentro.direita)<0.5,'no celular Usar exemplo e Limpar dividem a linha de baixo do seletor');
+   check(!sobrepoe(celular.exemplo,celular.limpar)&&celular.cortados.length===0&&[celular.exemplo,celular.limpar].every(botao=>botao.altura<=50),'no celular os botões cabem numa linha, sem cortar o texto');
+   check(celular.dimensao.topo>=celular.rotulo.base&&Math.abs(celular.dimensao.esquerda-celular.dentro.esquerda)<0.5,'no celular a dimensão fica embaixo do rótulo');
    await clicar('#size3');
    medida=await medir();
    check(medida.rolagemLateral<=360,`3×3 sem rolagem horizontal (${medida.rolagemLateral} px)`);
+   const tres=await grafico();
+   check(Math.abs(tres.plot.largura-(tres.figura.largura-10))<1&&Math.abs(tres.plot.altura-140)<0.5,`no celular o gráfico do 3×3 também cresce: ${JSON.stringify(tres.plot)}`);
+   igual(tres.cartao.altura,painel.cartao.altura,'no celular o cartão tem a mesma altura no 2×2 e no 3×3');
    await pagina('Emulation.setTouchEmulationEnabled',{enabled:false});
    await pagina('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
   });
