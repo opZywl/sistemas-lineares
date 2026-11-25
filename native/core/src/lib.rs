@@ -1,9 +1,10 @@
+use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 pub mod power;
 pub mod steps;
@@ -16,6 +17,7 @@ pub use steps::{
 pub const MAX_INPUT_LENGTH: usize = 100;
 pub const MAX_EXPONENT: i32 = 1000;
 pub const LIVE_BUDGET_BITS: u64 = 8000;
+pub const FLOAT_EXPONENT_LIMIT: i64 = 400;
 
 pub fn looks_incomplete(input: &str) -> bool {
     let text = input.trim().replace(',', ".").replace('\u{2212}', "-");
@@ -147,6 +149,46 @@ impl Rational {
 
     pub fn is_negative(&self) -> bool {
         self.numerator.is_negative()
+    }
+
+    pub fn abs(&self) -> Rational {
+        Rational {
+            numerator: self.numerator.abs(),
+            denominator: self.denominator.clone(),
+        }
+    }
+
+    pub fn cmp_magnitude(&self, other: &Rational) -> Ordering {
+        (self.numerator.magnitude() * other.denominator.magnitude())
+            .cmp(&(other.numerator.magnitude() * self.denominator.magnitude()))
+    }
+
+    pub fn to_f64(&self) -> f64 {
+        if self.numerator.is_zero() {
+            return 0.0;
+        }
+        let numerator = self.numerator.magnitude();
+        let denominator = self.denominator.magnitude();
+        let shift = 64 - (numerator.bits() as i64 - denominator.bits() as i64);
+        let exponent = -shift;
+        let magnitude = if exponent > FLOAT_EXPONENT_LIMIT {
+            f64::INFINITY
+        } else if exponent < -FLOAT_EXPONENT_LIMIT {
+            0.0
+        } else {
+            let quotient = if shift >= 0 {
+                (numerator << shift as usize) / denominator
+            } else {
+                numerator / (denominator << (-shift) as usize)
+            };
+            quotient.to_f64().unwrap_or(f64::INFINITY)
+                * f64::from_bits(((exponent + 1023) as u64) << 52)
+        };
+        if self.numerator.is_negative() {
+            -magnitude
+        } else {
+            magnitude
+        }
     }
 
     pub fn parse(input: &str) -> Result<Rational, ParseError> {
