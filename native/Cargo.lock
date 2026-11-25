@@ -2734,7 +2734,7 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "sistemas-lineares"
-version = "4.0.0"
+version = "1.0.0"
 dependencies = [
  "embed-resource",
  "sistemas-lineares-core",
@@ -2745,7 +2745,7 @@ dependencies = [
 
 [[package]]
 name = "sistemas-lineares-core"
-version = "4.0.0"
+version = "1.0.0"
 dependencies = [
  "num-bigint",
  "num-integer",
@@ -2754,7 +2754,7 @@ dependencies = [
 
 [[package]]
 name = "sistemas-lineares-linux"
-version = "4.0.0"
+version = "1.0.0"
 dependencies = [
  "eframe",
  "egui_kittest",
@@ -2766,7 +2766,7 @@ dependencies = [
 
 [[package]]
 name = "sistemas-lineares-ui"
-version = "4.0.0"
+version = "1.0.0"
 dependencies = [
  "sistemas-lineares-core",
 ]

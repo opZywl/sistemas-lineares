@@ -4,7 +4,7 @@ default-members = ["core", "ui", "app"]
 resolver = "3"
 
 [workspace.package]
-version = "4.0.0"
+version = "1.0.0"
 edition = "2024"
 authors = ["Lucas Lima"]
 rust-version = "1.85"

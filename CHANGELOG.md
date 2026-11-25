@@ -6,6 +6,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [1.0.0] - 2026-11-25
+
 ### Adicionado
 - **Modo pensar**
   - Depois de resolver, o botão Modo pensar mostra como a resposta foi calculada, passo a passo, com o porquê de cada operação.
@@ -126,6 +128,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Entrada de inteiros, decimais com vírgula ou ponto, frações e notação científica, com aviso no campo inválido.
 - Testes: 3.421 verificações, auditoria de 76.674 sistemas com 1.703.886 verificações independentes e paridade entre C# e JavaScript.
 
-[Não lançado]: https://github.com/opZywl/sistemas-lineares/compare/v4.0.0...HEAD
+[Não lançado]: https://github.com/opZywl/sistemas-lineares/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/opZywl/sistemas-lineares/releases/tag/v1.0.0
 [4.0.0]: https://github.com/opZywl/sistemas-lineares/releases/tag/v4.0.0
 [3.0.0]: https://github.com/opZywl/sistemas-lineares/tree/6b4c16b2d090f8de241b6d299185641a07aa95f6
