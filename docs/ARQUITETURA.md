@@ -6,7 +6,7 @@ O Sistemas Lineares tem três implementações da mesma matemática, que dão as
 | Parte | Pasta | Tecnologia | Papel |
 | --- | --- | --- | --- |
 | Núcleo | `native/core` | Rust e `num-bigint` | Frações exatas, leitura dos números (com potências), Gauss-Jordan, texto da resposta e Modo pensar |
-| Modelo da tela | `native/ui` | Rust | Estado da tela, layout, tema, quebra de texto e layout do Modo pensar, comuns aos dois apps nativos |
+| Modelo da tela | `native/ui` | Rust | Estado da tela, layout, tema, gráfico do sistema, quebra de texto e layout do Modo pensar, comuns aos dois apps nativos |
 | App para Windows | `native/app` | Rust, Win32, Direct2D e DirectWrite | O `SistemasLineares.exe` publicado nas releases |
 | App para Linux | `native/linux` | Rust, eframe, egui e AccessKit | O `sistemas-lineares` publicado nas releases |
 | Versão HTML | `portable/` | JavaScript com BigInt, HTML e CSS | O `SistemasLineares.html`, que roda offline em qualquer sistema |
@@ -19,7 +19,7 @@ sistemas-lineares/
 │   ├── core/                  núcleo matemático (crate sistemas-lineares-core)
 │   │   ├── src/               lib.rs, power.rs (potências) e steps.rs (Modo pensar)
 │   │   └── tests/             solver, robustez, parser, potências, passos, racional, formato e paridade
-│   ├── ui/                    modelo da tela, layout, tema e Modo pensar (crate sistemas-lineares-ui)
+│   ├── ui/                    modelo da tela, layout, tema, gráfico e Modo pensar (crate sistemas-lineares-ui)
 │   ├── app/                   app Win32 (crate sistemas-lineares, binário SistemasLineares)
 │   │   ├── src/               janela, desenho, fontes, instalação e preferências
 │   │   ├── examples/          capturas de tela dos estados e quadros da demonstração
@@ -45,7 +45,7 @@ sistemas-lineares/
 ## Núcleo (`native/core`)
 A API pública é pequena e estável, e os apps usam só ela:
 
-- **`Rational`** guarda numerador e denominador como `BigInt`, sempre reduzidos e com o denominador positivo. Soma, subtração, multiplicação e divisão são exatas.
+- **`Rational`** guarda numerador e denominador como `BigInt`, sempre reduzidos e com o denominador positivo. Soma, subtração, multiplicação e divisão são exatas. A conversão `to_f64`, usada só para desenhar o gráfico, é determinística: o mesmo número dá o mesmo `f64` no Rust e no JavaScript.
 - **`Rational::parse`** aplica as regras de entrada: ignora espaços nas pontas, aceita vírgula ou ponto decimal, o sinal de menos tipográfico (`−`), uma fração `a/b` em que cada lado pode ter decimais e expoente, e notação científica. Os limites são 100 caracteres, contados em UTF-16 como no C#, e expoente entre -1000 e 1000. Sem potência, a leitura e as mensagens são as mesmas do C#.
 - **Potências (`power`)** entram quando o texto tem `^`, `**`, parênteses, expoentes sobrescritos ou um sinal de multiplicação. A gramática aceita `2^3`, `2**3`, `10^-2`, `(1/2)^3` e `10²`; o sinal vale depois da potência (`-2² = −4`); potência de potência pede parênteses; o expoente é inteiro, de -1000 a 1000. Todo valor que passa por uma potência precisa ficar abaixo de 10^300 no numerador e no denominador, o que mantém a resposta instantânea mesmo com números densos. Erros próprios: `PowerExponent`, `PowerChain`, `PowerTooLarge`, `ZeroToZero`, `ZeroNegativePower`, `Parenthesis` e `Product`.
 - **Resposta ao vivo:** `looks_incomplete` reconhece um número ainda sendo digitado (como `2^` ou `1/`), e `within_live_budget` limita a resolução automática a 8.000 bits somando numeradores e denominadores. Acima disso, a conta espera o Enter.
@@ -57,10 +57,12 @@ A API pública é pequena e estável, e os apps usam só ela:
 ## Modelo da tela (`native/ui`)
 | Módulo | Responsabilidade |
 | --- | --- |
-| `model` | Estado da tela e transições, sem janela: edição, foco, pausa na digitação, saída do campo, Enter, setas, Resolver, exemplo, limpar, trocar 2×2 e 3×3, links do rodapé, copiar e Modo pensar. Também todos os textos fixos da interface |
-| `layout` | Função pura que recebe a escala de DPI, a área cliente e a dimensão e devolve os retângulos de todos os elementos, inclusive a prévia, os trilhos dos seletores, os links e as teclas do rodapé |
-| `theme` | Cores, fontes e tamanhos, inclusive a paleta de alto contraste com as cores do sistema |
+| `model` | Estado da tela e transições, sem janela: edição, foco, pausa na digitação, saída do campo, Enter, setas, exemplo, limpar, trocar 2×2 e 3×3, links do rodapé, copiar e Modo pensar. Também todos os textos fixos da interface |
+| `layout` | Função pura que recebe a escala de DPI, a área cliente e a dimensão e devolve os retângulos de todos os elementos, inclusive a prévia, o painel do gráfico e a área da legenda, os trilhos dos seletores, os links e as teclas do rodapé |
+| `graph` | Gráfico do sistema: transforma as equações completas em retas (2×2) ou planos (3×3), recorta cada uma pela área visível, escolhe a janela que mostra a origem, a solução e cada equação, escreve a legenda e anima as mudanças. Põe os rótulos das coordenadas onde nenhuma reta, letra de eixo ou o próprio ponto os cubra e alinha a grade aos pixels em qualquer escala. Devolve uma lista de desenho (segmentos, polígonos, discos, anéis, textos e a textura de pontos) que cada plataforma só pinta |
+| `theme` | Cores, fontes e tamanhos, inclusive as cores do gráfico e a paleta de alto contraste com as cores do sistema |
 | `thinking` | Layout do Modo pensar: quebra os textos, mede as matrizes e devolve os itens de desenho de cada passo |
+| `text` | Quebra de linha e reticências comuns aos dois apps nativos; na legenda, mantém juntos pares curtos como "(2, 1)" e igualdades como "0 = 5/2", com a mesma regra do HTML |
 | `text` | Quebra de linha e reticências, com poucas medidas mesmo em números de mil algarismos |
 | `icons` | Lê os SVGs de `assets/` (linhas, polilinhas, polígonos, retângulos e círculos) |
 
@@ -70,8 +72,9 @@ O `model` é a especificação do comportamento, e os dois apps nativos só dese
 - **Erros por campo:** um campo inválido revela o erro ao sair dele, no Enter ou na pausa, exceto quando ainda é um número sendo digitado no campo focado. O erro continua enquanto o campo seguir inválido e some na hora em que ele fica válido ou vazio.
 - **Estados do card:** `Card::Result` (com ou sem esmaecimento) ou `Card::Waiting`, que pode ser `Empty`, `Missing`, `Invalid` ou `Large`, com a prévia das equações.
 - **Cada tamanho guarda o próprio sistema:** o 2×2 e o 3×3 têm grades separadas, e Limpar apaga as duas.
-- **Dica abaixo dos campos:** o erro do campo focado, os avisos, o valor lido de um campo com potência ("Este campo vale 8.") ou a explicação dos formatos.
-- **Anúncios:** só os estados de resultado são anunciados. Na digitação, o anúncio sai depois da pausa e só quando o texto mudou; ações como Resolver, Enter, Usar exemplo e os links anunciam na hora.
+- **Dica e legenda do gráfico:** o erro do campo focado, os avisos ou o valor lido de um campo com potência ("Este campo vale 8."). Sem nada disso, o mesmo lugar mostra a legenda do gráfico, que diz onde as retas ou os planos se cruzam, se são paralelos ou coincidentes e o que falta preencher. Os formatos aceitos ficam na descrição acessível de cada campo.
+- **Gráfico:** `sketch` resume o sistema para o desenho. Cada linha completa vira um plano normalizado com frações exatas antes de passar a ponto flutuante, e a classificação (ponto, reta, plano, todo o espaço ou nenhum ponto comum) vem da resposta exata. O `Motion` do módulo `graph` anima as mudanças (retas que surgem, deslizam e somem, a área que se ajusta, o ponto que aparece e pulsa) e diz quando a animação acabou, para o app parar de pintar.
+- **Anúncios:** só os estados de resultado são anunciados. Na digitação, o anúncio sai depois da pausa e só quando o texto mudou; ações como Enter, Usar exemplo e os links anunciam na hora.
 
 ## App para Windows (`native/app`)
 | Módulo | Responsabilidade |
@@ -91,6 +94,8 @@ O `model` é a especificação do comportamento, e os dois apps nativos só dese
 - **Alto contraste:** com o alto contraste ligado, tudo é desenhado com as cores do sistema, e o app reage à troca de tema sem reiniciar.
 - **Acessibilidade:** os campos têm nomes como "Equação 1, coeficiente de x" e a descrição com os formatos aceitos e as teclas. Os seletores dizem se estão selecionados, os links do rodapé explicam o método, e o resultado e os erros são anunciados por regiões vivas para o Narrador e o NVDA.
 - **Janela lembrada:** posição, tamanho, estado maximizado, dimensão e método ficam em `HKCU\Software\Lucas Lima\Sistemas Lineares`. A posição só é restaurada se ainda cair em um monitor conectado.
+- **Gráfico:** o `plot.rs` traduz a lista de desenho para o Direct2D, com a textura de pontos em um ladrilho reaproveitado. No GDI de reserva, sem transparência, o brilho do ponto e o preenchimento dos planos ficam de fora para não cobrir as retas.
+- **Animação do gráfico:** um temporizador repinta só o painel do gráfico enquanto há animação, só com o painel visível, e para sozinho. Com as animações do Windows desligadas, o gráfico muda sem transição.
 - **Perfil de release:** `opt-level = 3`, LTO, um codegen unit, `panic = "abort"` e `strip`.
 
 ### Linha de comando no Windows
@@ -111,15 +116,18 @@ Argumentos desconhecidos são ignorados e o app abre normalmente.
 | `fonts` | Space Grotesk embutida e métricas iguais às do Windows |
 | `contrast` | Alto contraste pela opção `--alto-contraste`, pela variável de ambiente ou pela preferência do desktop (portal ou GNOME) |
 | `install` | Instalação e desinstalação por usuário nas pastas XDG: o binário em `~/.local/bin`, o atalho `.desktop` e os ícones |
+| `animation` | Preferência de animações pela variável `SISTEMAS_LINEARES_ANIMACOES` (0 desliga, 1 liga), pelo portal ou pelo GNOME |
 | `cli` | Linha de comando: `--instalar`, `--desinstalar`, `--silencioso`, `--alto-contraste`, `--versao` e `--ajuda` |
 
 - **Acessibilidade:** o AccessKit publica a árvore de acessibilidade pelo AT-SPI, com os mesmos nomes e descrições do Windows, para o Orca.
 - **Preferências:** tamanho e posição da janela, dimensão e método ficam em `~/.config/sistemas-lineares/preferencias.ron`.
 - **Gráficos:** OpenGL pelo `glow`, com X11 ou Wayland. As bibliotecas do sistema são carregadas na hora de abrir.
+- **Animação do gráfico:** o `paint.rs` pinta a lista de desenho com o pincel do egui recortado à área do gráfico. O app só pede novos quadros enquanto o gráfico está animando e respeita a preferência de animações do desktop.
 
 ## Versão HTML (`portable/`)
 - **`solver.js`** implementa o mesmo algoritmo com BigInt e exporta `Rational`, `solve` e `format`, que os testes em Node também usam. É um porte fiel do núcleo, inclusive das potências, dos espaços Unicode aceitos, da prévia e do orçamento da resposta ao vivo. Também exporta `METHODS`, `walkthrough` e `walkthroughText`, o porte do Modo pensar, que gera o mesmo texto do Rust.
 - **`app.js`**, **`styles.css`** e **`shell.html`** formam a interface. O `app.js` porta o comportamento do `native/ui/src/model.rs`: resposta ao vivo, esmaecimento, erros por campo, Enter e setas, links do rodapé e anúncios.
+- **`graph.js`** porta o `native/ui/src/graph.rs` operação por operação, sem depender da página, e por isso roda também nos testes em Node. O `app.js` pinta a lista de desenho em SVG, com `requestAnimationFrame` só durante a animação, `prefers-reduced-motion` e `forced-colors`.
 - **`tools/build-portable.cjs`** junta tudo em um único `SistemasLineares.html`: o CSS com a fonte em base64, os ícones como `<symbol>` SVG e os scripts inline. O arquivo gerado fica no git, e o workflow Lint confere que ele corresponde às fontes.
 
 ## Legado C# (`legado/csharp`)
@@ -136,16 +144,16 @@ A versão 3 em C#/WinForms continua compilável com `legado\csharp\compilar.cmd`
 | `native/core/tests/passos.rs` | O Modo pensar nos três métodos: em todos os 15.625 sistemas 2×2 pequenos, 39.366 sistemas 3×3 e 3.000 sistemas com frações, refaz cada operação de linha, compara cada matriz mostrada, recalcula D, Dx, Dy e Dz pela definição e confere a resposta e a verificação. Grava o texto dos passos quando `SL_PASSOS_SAIDA` está definida |
 | `native/core/tests/formato.rs` | Os 7 exemplos da APRESENTACAO.md com o texto exato e, em sistemas variados, a classificação, os pivôs, a matriz reduzida e o texto comparados ao C# |
 | `native/core/tests/paridade_*.rs` | Comparações opcionais com saídas do C#, ativadas por `SL_FIXTURES_CSHARP` e `SL_SOLVER_CSHARP` |
-| `native/ui/tests` | O modelo da tela em todos os estados, os textos iguais aos da versão HTML, o layout em várias escalas de DPI e o custo do Modo pensar com números enormes |
-| `native/app/tests` | A janela real do Windows: resposta ao vivo, esmaecimento, pausa, Enter e setas, AltGr, links, dicas, desenho dos campos e do rodapé, alto contraste, DPI, instalação e preferências |
+| `native/ui/tests` | O modelo da tela em todos os estados, os textos iguais aos da versão HTML, o layout em várias escalas de DPI, o custo do Modo pensar com números enormes e o gráfico: 1.844 cenas sem nada fora da área desenhada e 300 animações sorteadas, também em alto contraste, que terminam exatamente na cena de repouso. Grava as cenas quando `SL_GRAFICOS_SAIDA` está definida |
+| `native/app/tests` | A janela real do Windows: resposta ao vivo, esmaecimento, pausa, Enter e setas, AltGr, links, dicas, desenho dos campos, do rodapé e do gráfico em Direct2D e GDI, alto contraste, DPI, instalação e preferências |
 | `native/linux/tests` | O app Linux com o egui_kittest pela árvore de acessibilidade, a linha de comando e a instalação |
-| `tests/PortableTests.cjs` | As 76.674 respostas do JavaScript iguais às do Rust, o texto do Modo pensar igual ao do Rust nos três métodos, o vetor de potências, o corpus diferencial, o modelo da interface, IDs únicos e o HTML completo |
-| `tests/InterfaceHtml.cjs` | A versão HTML no Google Chrome sem janela: resposta ao vivo, esmaecimento e anúncios, teclado, erros por campo, IME, 2×2 e 3×3, links do rodapé, Modo pensar, valores longos, movimento reduzido, alto contraste e celular |
+| `tests/PortableTests.cjs` | As 76.674 respostas do JavaScript iguais às do Rust, o texto do Modo pensar igual ao do Rust nos três métodos, o vetor de potências, o corpus diferencial, as 1.844 cenas do gráfico iguais às do Rust byte a byte, o modelo da interface, IDs únicos e o HTML completo |
+| `tests/InterfaceHtml.cjs` | A versão HTML no Google Chrome sem janela: resposta ao vivo, esmaecimento e anúncios, teclado, erros por campo, IME, 2×2 e 3×3, links do rodapé, Modo pensar, valores longos, gráfico, movimento reduzido, alto contraste e celular |
 
 ### Como a paridade é verificada
-1. O `cargo test --release` roda com `SL_FIXTURES_SAIDA=tests\fixtures.tsv`, `SL_PASSOS_SAIDA=tests\passos.tsv` e `SL_POTENCIAS_SAIDA=tests\potencias-corpus.tsv`. O teste de robustez grava a resposta de cada um dos 76.674 sistemas, o do Modo pensar grava o texto dos passos de 609 sistemas nos três métodos, e o das potências grava a leitura de 200.000 entradas aleatórias.
+1. O `cargo test --release` roda com `SL_FIXTURES_SAIDA=tests\fixtures.tsv`, `SL_PASSOS_SAIDA=tests\passos.tsv`, `SL_POTENCIAS_SAIDA=tests\potencias-corpus.tsv` e `SL_GRAFICOS_SAIDA=tests\graficos.tsv`. O teste de robustez grava a resposta de cada um dos 76.674 sistemas, o do Modo pensar grava o texto dos passos de 609 sistemas nos três métodos, o das potências grava a leitura de 200.000 entradas aleatórias, e o do gráfico grava a legenda e a lista de desenho de 1.844 cenas.
 2. O `csc.exe` compila a auditoria do C# legado, que grava `tests\fixtures-csharp.tsv` com os mesmos sistemas. O `fc /b` compara os dois arquivos byte a byte.
-3. O `node tools/build-portable.cjs` gera o HTML, e o `node tests/PortableTests.cjs` com os três arquivos confere que o JavaScript dá as mesmas respostas, o mesmo passo a passo e a mesma leitura de cada entrada.
+3. O `node tools/build-portable.cjs` gera o HTML, e o `node tests/PortableTests.cjs` com os quatro arquivos confere que o JavaScript dá as mesmas respostas, o mesmo passo a passo, a mesma leitura de cada entrada e o mesmo gráfico.
 4. O `node tests/InterfaceHtml.cjs` abre o HTML no Chrome sem janela e usa a interface como uma pessoa usaria.
 5. Os arquivos temporários são apagados, e o script sai com 0 quando tudo passa ou 1 quando algo falha.
 
@@ -166,5 +174,6 @@ A toolchain dos workflows vem do `rust-toolchain.toml`, e os scripts de apoio fi
 - **Um modelo da tela para os dois apps nativos:** o `native/ui` decide o comportamento e os textos, e cada app só desenha. Assim o Windows e o Linux não divergem, e o HTML tem uma referência única para portar.
 - **Resposta ao vivo com orçamento:** resolver é instantâneo para os sistemas do dia a dia, mas números de milhares de algarismos podem levar mais tempo. Acima de 8.000 bits, a conta espera o Enter, para a digitação nunca travar.
 - **Limite de 300 algarismos nas potências:** potências de números como 101/137 geram frações densas, em que o mdc fica caro. Com o limite, mesmo o pior caso resolve na hora no Rust e no navegador, e os números grandes de sempre (`1e1000`) continuam aceitos.
+- **Gráfico calculado uma vez e desenhado três vezes:** a geometria, a animação e as legendas ficam no `native/ui`; o Windows, o Linux e o HTML só pintam a lista de desenho. A classificação vem da conta exata, nunca do desenho, e o ponto flutuante aparece só na última etapa, com as mesmas operações no Rust e no JavaScript.
 - **C# mantido como legado:** a versão anterior virou o oráculo de paridade, e qualquer divergência do Rust aparece no `testar-tudo.cmd`.
 - **HTML gerado e versionado:** quem não pode rodar o exe abre o HTML direto do repositório, e o Lint garante que ele está em dia.

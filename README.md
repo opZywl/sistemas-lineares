@@ -26,6 +26,7 @@ O `SistemasLineares.exe` não tem assinatura digital, então o Windows SmartScre
 ## Recursos
 - **Cálculo exato:** frações de inteiros de precisão arbitrária e eliminação de Gauss-Jordan, sem arredondamento.
 - **Resposta automática:** a solução aparece assim que o último campo é preenchido, sem Enter. Enquanto você digita, o card mostra quantos campos faltam e a prévia das equações.
+- **Gráfico ao vivo:** cada equação aparece desenhada enquanto você digita, como uma reta no plano (2×2) ou um plano numa caixa 3D (3×3), na cor do seu número. A solução surge como um ponto com as coordenadas, e retas paralelas, coincidentes ou infinitas soluções ficam visíveis, com uma legenda que explica o que se vê.
 - **Resposta completa:** solução única, infinitas soluções com a forma geral em parâmetros `t1`, `t2`, … ou sistema sem solução.
 - **Modo pensar:** o passo a passo de como a resposta foi calculada, com o porquê de cada operação, todas as contas, as matrizes com o pivô em destaque e a conferência nas equações originais.
 - **Três métodos:** Gauss-Jordan, regra de Cramer (com a regra de Sarrus no 3×3) e escalonamento de Gauss com substituição de baixo para cima. O app lembra o último método escolhido.
@@ -39,7 +40,9 @@ O `SistemasLineares.exe` não tem assinatura digital, então o Windows SmartScre
 ## Como funciona
 Cada campo aceita um número exato, inclusive com potência, e o app monta a matriz aumentada [A | b] assim que todos estão preenchidos e aplica a eliminação de Gauss-Jordan. Uma linha do tipo 0 = c, com c diferente de zero, mostra que o sistema não tem solução; variáveis sem pivô viram parâmetros livres. Os números são frações de inteiros de precisão arbitrária, então uma diferença pequena nunca é confundida com zero por arredondamento.
 
-Depois de resolver, o botão **Modo pensar** mostra a mesma resposta calculada pelo método escolhido. Na regra de Cramer, quando D = 0, o app explica por que o método não decide o sistema e continua por escalonamento, em vez de concluir algo errado a partir dos determinantes.
+O gráfico ao lado das equações usa a mesma resposta exata: as frações só viram números aproximados na hora de desenhar, e a classificação (um ponto, uma reta, um plano ou nenhum ponto em comum) vem sempre do cálculo exato, nunca do desenho.
+
+Com a resposta na tela, o botão **Modo pensar** mostra a mesma resposta calculada pelo método escolhido. Na regra de Cramer, quando D = 0, o app explica por que o método não decide o sistema e continua por escalonamento, em vez de concluir algo errado a partir dos determinantes.
 
 O método, com exemplos prontos para apresentar, está em [APRESENTACAO.md](APRESENTACAO.md). A organização do código está em [ARQUITETURA.md](docs/ARQUITETURA.md).
 

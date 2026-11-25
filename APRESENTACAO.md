@@ -14,13 +14,19 @@ Os números são armazenados como frações reduzidas de inteiros de precisão a
 
 ## Entrada e resposta automática
 
-Cada campo aceita inteiros, decimais, frações, notação científica e potências, como `2^3`, `10^-2`, `(1/2)^3` e `10²`. A potência vale antes do sinal, como na matemática: `-2²` é −4 e `(-2)²` é 4. Com o campo focado, a dica abaixo dos campos mostra o valor lido, por exemplo "Este campo vale 8.".
+Cada campo aceita inteiros, decimais, frações, notação científica e potências, como `2^3`, `10^-2`, `(1/2)^3` e `10²`. A potência vale antes do sinal, como na matemática: `-2²` é −4 e `(-2)²` é 4. Com o campo focado, a dica ao lado do gráfico mostra o valor lido, por exemplo "Este campo vale 8.".
 
-Não é preciso clicar em Resolver: a resposta aparece assim que o último campo é preenchido. Enquanto se digita, o card mostra quantos campos faltam e a prévia das equações, com `?` no lugar do que falta. Enter leva ao próximo campo vazio, e as setas para cima e para baixo mudam de equação.
+Não há botão de resolver: a resposta aparece assim que o último campo é preenchido. Enquanto se digita, o card mostra quantos campos faltam e a prévia das equações, com `?` no lugar do que falta. Enter leva ao próximo campo vazio, e as setas para cima e para baixo mudam de equação.
+
+## Gráfico do sistema
+
+Abaixo das equações, o gráfico mostra o sistema enquanto se digita. No 2×2, cada equação a·x + b·y = c é uma reta, e a solução única é o ponto onde as retas se cruzam, com as coordenadas marcadas nos eixos. Retas paralelas nunca se cruzam (sistema sem solução), e retas coincidentes se sobrepõem (infinitas soluções). No 3×3, cada equação é um plano; a solução única é o ponto comum aos três, e as linhas claras mostram onde cada par de planos se encontra.
+
+Cada reta ou plano tem a cor do número da sua equação, e a legenda ao lado diz o que o gráfico mostra. A classificação vem da conta exata; o desenho só ilustra. Em uma apresentação, use o exemplo 2×2 e mude o termo independente de uma equação: a reta desliza e o ponto da solução acompanha.
 
 ## Modo pensar
 
-Depois de resolver, o botão **Modo pensar** abre o passo a passo da resposta. No alto da página, escolha o método:
+Com a resposta na tela, o botão **Modo pensar**, em destaque no card de resultado, abre o passo a passo. No alto da página, escolha o método:
 
 - **Gauss-Jordan:** zera a coluna de cada pivô em todas as linhas até a parte da esquerda virar a matriz identidade. Cada passo mostra a operação (por exemplo, L₂ ← L₂ − 2·L₁), a conta feita na linha e a matriz resultante.
 - **Regra de Cramer:** calcula D = det(A) e, para cada incógnita, o determinante com a coluna dela trocada pelos termos independentes. No 2×2 usa a diagonal principal menos a secundária e no 3×3 a regra de Sarrus. Quando D = 0, o método não decide entre infinitas soluções e nenhuma, e o passo a passo continua por escalonamento.
@@ -43,13 +49,13 @@ Os três métodos chegam à mesma resposta, terminam conferindo os valores nas e
 
 Mostre também como o app ajuda a corrigir a entrada:
 
-- Com campos vazios, o card mostra "Faltam N campos" e a prévia das equações. **Resolver sistema** aponta o primeiro campo vazio.
+- Com campos vazios, o card mostra "Faltam N campos" e a prévia das equações. Enter leva ao próximo campo vazio.
 - Digite `1/0` num campo e saia dele: o campo fica vermelho e a dica diz "O denominador não pode ser zero.". O mesmo aviso aparece se você pressionar Enter no campo ou parar de digitar por um instante.
 - Digite `2^3` num campo: a dica mostra "Este campo vale 8.".
 
 ## Onde explicar no código
 
-Em native/core/src/lib.rs, `Rational::parse` interpreta os números, e native/core/src/power.rs lê as potências e os parênteses; a estrutura `Rational` implementa as operações exatas; `solve` efetua a eliminação; e `format` escreve as respostas, inclusive com parâmetros livres. Em native/core/src/steps.rs, `walkthrough` monta os passos do Modo pensar para cada método; native/core/tests/passos.rs refaz cada operação de linha, recalcula cada determinante pela definição e confere que os três métodos chegam à resposta do `solve`. Em native/core/tests/robustez.rs, os resultados são conferidos por métodos independentes: posto por menores, regra de Cramer e substituição nas equações originais. O estado da tela, com a resposta automática e os avisos, fica em native/ui/src/model.rs e é o mesmo nos apps de Windows e de Linux. A janela do Windows fica em native/app/src/window.rs, e a do Linux em native/linux/src/app.rs.
+Em native/core/src/lib.rs, `Rational::parse` interpreta os números, e native/core/src/power.rs lê as potências e os parênteses; a estrutura `Rational` implementa as operações exatas; `solve` efetua a eliminação; e `format` escreve as respostas, inclusive com parâmetros livres. Em native/core/src/steps.rs, `walkthrough` monta os passos do Modo pensar para cada método; native/core/tests/passos.rs refaz cada operação de linha, recalcula cada determinante pela definição e confere que os três métodos chegam à resposta do `solve`. Em native/core/tests/robustez.rs, os resultados são conferidos por métodos independentes: posto por menores, regra de Cramer e substituição nas equações originais. O estado da tela, com a resposta automática e os avisos, fica em native/ui/src/model.rs e é o mesmo nos apps de Windows e de Linux. O gráfico é calculado em native/ui/src/graph.rs (retas, planos recortados pela caixa, legenda e animação) e desenhado do mesmo jeito no Windows, no Linux e no HTML, cujo porte fica em portable/graph.js. A janela do Windows fica em native/app/src/window.rs, e a do Linux em native/linux/src/app.rs.
 
 A versão anterior, em C#, fica em legado/csharp como implementação de referência: as duas dão as mesmas respostas, byte a byte.
 
