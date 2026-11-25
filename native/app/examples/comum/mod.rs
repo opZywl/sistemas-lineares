@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use sistemas_lineares::gfx::save_png;
-use sistemas_lineares::{Button, Handles, pump};
+use sistemas_lineares::{Button, Handles, diagnostics, pump};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
@@ -19,7 +20,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::HSTRING;
 
+pub fn graph_at_rest(main: HWND) {
+    let limit = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < limit && diagnostics(main).is_some_and(|state| state.graph_timer) {
+        pump(main);
+        unsafe { Sleep(10) };
+    }
+}
+
 pub fn settle(main: HWND) {
+    graph_at_rest(main);
     for _ in 0..4 {
         pump(main);
         unsafe { Sleep(40) };

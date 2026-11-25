@@ -109,6 +109,7 @@ fn main() -> windows::core::Result<()> {
     let handles = create(&Launch {
         high_contrast: contraste.then_some(true),
         renderer,
+        idle_delay_ms: 60_000,
         ..Launch::background((-4000, 0), (1160, 810))
     })?;
     let dpi = unsafe { GetDpiForWindow(handles.main) };
@@ -148,14 +149,17 @@ fn main() -> windows::core::Result<()> {
     snap(main, &directory, "01h-foco-no-link-com-dica")?;
     focus(main, handles.two);
     snap(main, &directory, "01i-foco-no-segmento")?;
-    focus(main, handles.solve);
-    snap(main, &directory, "01j-foco-em-resolver")?;
+    focus(main, handles.example);
+    snap(main, &directory, "01j-foco-em-usar-exemplo")?;
     focus(main, handles.inputs[0][0]);
     keyboard_cues(main, false);
     click(&handles, Button::Example);
-    snap(main, &directory, "02-exemplo-2x2-pronto")?;
-    click(&handles, Button::Solve);
-    snap(main, &directory, "03-exemplo-2x2-resolvido")?;
+    snap(main, &directory, "02-exemplo-2x2-resolvido")?;
+    keyboard_cues(main, true);
+    focus(main, handles.think);
+    snap(main, &directory, "03-foco-no-modo-pensar")?;
+    focus(main, handles.inputs[0][0]);
+    keyboard_cues(main, false);
     click(&handles, Button::Think);
     snap(main, &directory, "04-modo-pensar-2x2")?;
     full_page(&handles, &directory, "05-modo-pensar-gauss-jordan-2x2")?;
@@ -166,7 +170,6 @@ fn main() -> windows::core::Result<()> {
     click(&handles, Button::Back);
     click(&handles, Button::Three);
     click(&handles, Button::Example);
-    click(&handles, Button::Solve);
     snap(main, &directory, "08-exemplo-3x3-resolvido")?;
     click(&handles, Button::Think);
     click(&handles, Button::MethodCramer);
@@ -184,35 +187,44 @@ fn main() -> windows::core::Result<()> {
             &["3", "6", "9", "12"],
         ],
     );
-    click(&handles, Button::Solve);
     snap(main, &directory, "12-infinitas-3x3")?;
     click(&handles, Button::Think);
     click(&handles, Button::MethodCramer);
     full_page(&handles, &directory, "13-modo-pensar-cramer-singular")?;
     click(&handles, Button::Back);
     write(&handles, 2, 3, "13");
-    click(&handles, Button::Solve);
     snap(main, &directory, "14-sem-solucao-3x3")?;
     click(&handles, Button::Think);
     click(&handles, Button::MethodGauss);
     full_page(&handles, &directory, "15-modo-pensar-sem-solucao")?;
     click(&handles, Button::Back);
+    fill(
+        &handles,
+        &[
+            &["1234567", "2", "3", "7654321"],
+            &["4", "2345678", "6", "8765432"],
+            &["7", "8", "3456789", "9876543"],
+        ],
+    );
+    snap(main, &directory, "15a-legenda-longa-3x3")?;
+    resize_client(main, 1057, 800)?;
+    snap(main, &directory, "15b-legenda-longa-com-reticencias")?;
+    resize_client(main, 1160, 810)?;
     click(&handles, Button::Clear);
     click(&handles, Button::Two);
-    click(&handles, Button::Solve);
-    snap(main, &directory, "16-erro-campo-vazio-2x2")?;
+    snap(main, &directory, "16-aguardando-2x2")?;
     fill(&handles, &[&["3", "0", "1"], &["0", "7", "1e-30"]]);
-    click(&handles, Button::Solve);
     snap(main, &directory, "17-valores-longos-2x2")?;
     click(&handles, Button::Think);
     full_page(&handles, &directory, "18-modo-pensar-valores-longos")?;
     click(&handles, Button::Back);
     write(&handles, 0, 0, "1/0");
-    click(&handles, Button::Solve);
+    idle(main);
     snap(main, &directory, "19-erro-denominador-zero")?;
     fill(&handles, &[&["1", "1", "2"], &["2", "2", "4"]]);
-    click(&handles, Button::Solve);
     snap(main, &directory, "20-infinitas-2x2")?;
+    write(&handles, 1, 3, "5");
+    snap(main, &directory, "20a-sem-solucao-2x2")?;
     unsafe {
         SetWindowPos(
             main,
@@ -227,8 +239,15 @@ fn main() -> windows::core::Result<()> {
     pump(main);
     click(&handles, Button::Three);
     snap(main, &directory, "21-janela-minima-3x3")?;
+    focus(main, handles.example);
+    snap(main, &directory, "21a-janela-minima-legenda-sem-painel")?;
+    click(&handles, Button::Two);
     click(&handles, Button::Example);
-    click(&handles, Button::Solve);
+    focus(main, handles.example);
+    snap(main, &directory, "21b-janela-minima-2x2-com-painel")?;
+    click(&handles, Button::Three);
+    focus(main, handles.inputs[0][0]);
+    click(&handles, Button::Example);
     click(&handles, Button::Think);
     snap(main, &directory, "22-janela-minima-modo-pensar")?;
     unsafe { DestroyWindow(main)? };

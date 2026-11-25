@@ -53,6 +53,42 @@ pub fn janela_com(launch: Launch) -> Handles {
     handles
 }
 
+pub fn janela_animada(animar: bool) -> Handles {
+    janela_com(Launch {
+        animations: Some(animar),
+        ..Launch::background(FORA_DA_TELA, CLIENTE)
+    })
+}
+
+pub fn esperar_grafico(handles: &Handles) -> bool {
+    let limite = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    while std::time::Instant::now() < limite {
+        pump(handles.main);
+        let animando =
+            sistemas_lineares::diagnostics(handles.main).is_some_and(|estado| estado.graph_timer);
+        if !animando {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    false
+}
+
+pub fn posicao_no_canvas(handles: &Handles, hwnd: HWND) -> Rect {
+    let mut canvas = RECT::default();
+    let mut alvo = RECT::default();
+    unsafe {
+        let _ = GetWindowRect(handles.canvas, &mut canvas);
+        let _ = GetWindowRect(hwnd, &mut alvo);
+    }
+    Rect::new(
+        alvo.left - canvas.left,
+        alvo.top - canvas.top,
+        alvo.right - alvo.left,
+        alvo.bottom - alvo.top,
+    )
+}
+
 pub fn fechar(handles: &Handles) {
     unsafe {
         if IsWindow(Some(handles.main)).as_bool() {
@@ -200,6 +236,14 @@ pub fn descricao_acessivel(hwnd: HWND) -> String {
         .and_then(|objeto| unsafe { objeto.get_accDescription(&variante(0)) }.ok())
         .map(|texto| texto.to_string())
         .unwrap_or_default()
+}
+
+pub fn papel_acessivel(hwnd: HWND) -> Option<i32> {
+    let papel =
+        acessivel(hwnd).and_then(|objeto| unsafe { objeto.get_accRole(&variante(0)) }.ok())?;
+    unsafe {
+        (papel.Anonymous.Anonymous.vt == VT_I4).then_some(papel.Anonymous.Anonymous.Anonymous.lVal)
+    }
 }
 
 pub fn dica(handles: &Handles, ferramenta: usize, por_janela: bool) -> String {

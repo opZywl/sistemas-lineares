@@ -5,19 +5,22 @@ use windows::Win32::Foundation::{
     COLORREF, D2DERR_RECREATE_TARGET, E_FAIL, GENERIC_WRITE, POINT, RECT,
 };
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D_RECT_F, D2D_SIZE_F, D2D1_ALPHA_MODE, D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED,
-    D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN,
-    D2D1_PIXEL_FORMAT,
+    D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U, D2D1_ALPHA_MODE, D2D1_ALPHA_MODE_IGNORE,
+    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
+    D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_ANTIALIAS_MODE_ALIASED, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_ARC_SEGMENT,
-    D2D1_ARC_SIZE_SMALL, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_CUSTOM,
-    D2D1_DASH_STYLE_SOLID, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
-    D2D1_FEATURE_LEVEL_DEFAULT, D2D1_LINE_JOIN_ROUND, D2D1_RENDER_TARGET_PROPERTIES,
-    D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT,
-    D2D1_STROKE_STYLE_PROPERTIES, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1CreateFactory,
-    ID2D1DCRenderTarget, ID2D1Factory, ID2D1GeometrySink, ID2D1PathGeometry, ID2D1RenderTarget,
-    ID2D1SolidColorBrush, ID2D1StrokeStyle,
+    D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_BRUSH_PROPERTIES,
+    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND,
+    D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, D2D1_DASH_STYLE_CUSTOM, D2D1_DASH_STYLE_SOLID,
+    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_EXTEND_MODE_WRAP,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_LINE_JOIN_ROUND,
+    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE,
+    D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES, D2D1_SWEEP_DIRECTION_CLOCKWISE,
+    D2D1CreateFactory, ID2D1BitmapBrush, ID2D1Brush, ID2D1DCRenderTarget, ID2D1Factory,
+    ID2D1GeometrySink, ID2D1PathGeometry, ID2D1RenderTarget, ID2D1SolidColorBrush,
+    ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
@@ -30,10 +33,11 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
     BS_SOLID, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen, CreateSolidBrush,
     DT_CALCRECT, DT_NOCLIP, DT_NOPREFIX, DT_SINGLELINE, DeleteDC, DeleteObject, DrawTextW,
-    ETO_CLIPPED, Ellipse, ExtCreatePen, ExtTextOutW, FillRect, GetStockObject, HDC, HGDIOBJ,
-    LOGBRUSH, LineTo, MoveToEx, NULL_BRUSH, PEN_STYLE, PS_DOT, PS_ENDCAP_ROUND, PS_GEOMETRIC,
-    PS_JOIN_ROUND, PS_SOLID, Polyline, RoundRect, SRCCOPY, SelectObject, SetBkMode, SetTextColor,
-    SetViewportOrgEx, TRANSPARENT,
+    ETO_CLIPPED, Ellipse, ExtCreatePen, ExtTextOutW, FillRect, GetStockObject, HBRUSH, HDC,
+    HGDIOBJ, IntersectClipRect, LOGBRUSH, LineTo, MoveToEx, NULL_BRUSH, PEN_STYLE, PS_DOT,
+    PS_ENDCAP_FLAT, PS_ENDCAP_ROUND, PS_GEOMETRIC, PS_JOIN_ROUND, PS_SOLID, Polygon, Polyline,
+    RestoreDC, RoundRect, SRCCOPY, SaveDC, SelectObject, SetBkMode, SetTextColor, SetViewportOrgEx,
+    TRANSPARENT,
 };
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA,
@@ -48,7 +52,7 @@ use crate::fonts::{self, GdiFont, TextMetrics};
 use crate::icons::{Icon, Shape, VIEWBOX};
 use crate::layout::Rect;
 use crate::theme::{self, Color, Font};
-pub use sistemas_lineares_ui::text::{margins_for, wrap, wrap_lines};
+pub use sistemas_lineares_ui::text::{ellipsize, margins_for, wrap, wrap_lines};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Align {
@@ -110,21 +114,24 @@ fn point(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 
-struct PlacedLine {
-    text: String,
-    x: i32,
-    y: i32,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlacedLine {
+    pub text: String,
+    pub x: i32,
+    pub y: i32,
 }
 
-fn plan_text(
+pub fn plan_text(
     text: &str,
     rect: Rect,
     align: Align,
     valign: VAlign,
     metric: TextMetrics,
+    snug: i32,
     measure: &dyn Fn(&str) -> i32,
 ) -> Vec<PlacedLine> {
     let line_height = metric.height.max(1);
+    let snug = snug.clamp(1, line_height);
     let (left_margin, right_margin) = margins_for(metric);
     let left = rect.x + left_margin;
     let right = rect.right() - right_margin;
@@ -134,7 +141,7 @@ fn plan_text(
         .map(|line| line.strip_suffix('\r').unwrap_or(line))
         .collect();
     let wrapping = paragraphs.iter().any(|line| measure(line) > available);
-    let lines: Vec<String> = if wrapping {
+    let mut lines: Vec<String> = if wrapping {
         paragraphs
             .iter()
             .flat_map(|line| wrap(line, available, measure))
@@ -142,7 +149,26 @@ fn plan_text(
     } else {
         paragraphs.iter().map(|line| line.to_string()).collect()
     };
-    let total = lines.len() as i32 * line_height;
+    let mut pitch = line_height;
+    let room = rect.h - line_height;
+    let count = lines.len() as i32;
+    if wrapping && count > 1 && (count - 1) * line_height > room {
+        let shown = if room < snug {
+            1
+        } else {
+            (room / snug + 1).min(count)
+        };
+        if shown < count {
+            lines.truncate(shown as usize);
+            if let Some(last) = lines.last_mut() {
+                *last = ellipsize(&format!("{}\u{2026}", last.trim_end()), available, measure);
+            }
+        }
+        if shown > 1 {
+            pitch = (room / (shown - 1)).clamp(snug, line_height);
+        }
+    }
+    let total = (lines.len() as i32 - 1).max(0) * pitch + line_height;
     let top = match valign {
         VAlign::Top => rect.y,
         VAlign::Center if total > rect.h => rect.y,
@@ -150,10 +176,7 @@ fn plan_text(
     };
     let mut placed = Vec::with_capacity(lines.len());
     for (index, line) in lines.into_iter().enumerate() {
-        let y = top + index as i32 * line_height;
-        if wrapping && index > 0 && y + line_height > rect.bottom() {
-            break;
-        }
+        let y = top + index as i32 * pitch;
         if line.is_empty() {
             continue;
         }
@@ -261,6 +284,55 @@ struct CachedText {
     width: i32,
 }
 
+const PATTERN_LIMIT: usize = 4;
+
+struct Pattern {
+    target: usize,
+    key: (Color, u32, u32),
+    brush: ID2D1BitmapBrush,
+}
+
+fn pattern_tile(
+    target: &ID2D1RenderTarget,
+    value: Color,
+    size: u32,
+    radius: f32,
+) -> Result<ID2D1BitmapBrush> {
+    let side = size as f32;
+    unsafe {
+        let tile = target.CreateCompatibleRenderTarget(
+            Some(&D2D_SIZE_F {
+                width: side,
+                height: side,
+            }),
+            Some(&D2D_SIZE_U {
+                width: size,
+                height: size,
+            }),
+            Some(&D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+            }),
+            D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE,
+        )?;
+        let ink = tile.CreateSolidColorBrush(&color(Color { a: 255, ..value }), None)?;
+        tile.BeginDraw();
+        tile.Clear(Some(&D2D1_COLOR_F::default()));
+        tile.FillEllipse(&ellipse((side / 2.0, side / 2.0), radius), &ink);
+        tile.EndDraw(None, None)?;
+        let bitmap = tile.GetBitmap()?;
+        target.CreateBitmapBrush(
+            &bitmap,
+            Some(&D2D1_BITMAP_BRUSH_PROPERTIES {
+                extendModeX: D2D1_EXTEND_MODE_WRAP,
+                extendModeY: D2D1_EXTEND_MODE_WRAP,
+                interpolationMode: D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+            }),
+            None,
+        )
+    }
+}
+
 pub struct Engine {
     factory: ID2D1Factory,
     dwrite: IDWriteFactory,
@@ -276,12 +348,14 @@ pub struct Engine {
     metrics: [TextMetrics; Font::COUNT],
     target: Option<ID2D1DCRenderTarget>,
     brush: Option<ID2D1SolidColorBrush>,
+    patterns: RefCell<Vec<Pattern>>,
     cache: RefCell<HashMap<(Font, String), CachedText>>,
     widths: Widths,
 }
 
 impl Drop for Engine {
     fn drop(&mut self) {
+        self.patterns.get_mut().clear();
         self.cache.get_mut().clear();
         self.formats.clear();
         self.collection = None;
@@ -507,6 +581,7 @@ impl Engine {
                 metrics: [TextMetrics::default(); Font::COUNT],
                 target: None,
                 brush: None,
+                patterns: RefCell::new(Vec::new()),
                 cache: RefCell::new(HashMap::new()),
                 widths: Widths::new(),
             };
@@ -637,8 +712,41 @@ impl Engine {
         self.measure(text, font) + left + right
     }
 
+    fn pattern(
+        &self,
+        target: &ID2D1RenderTarget,
+        value: Color,
+        spacing: f32,
+        radius: f32,
+    ) -> Option<ID2D1BitmapBrush> {
+        let size = spacing.round();
+        if (spacing - size).abs() > 1e-3 || !(2.0..=256.0).contains(&size) {
+            return None;
+        }
+        let identity = target.as_raw() as usize;
+        let key = (Color { a: 255, ..value }, size as u32, radius.to_bits());
+        let mut patterns = self.patterns.try_borrow_mut().ok()?;
+        if let Some(found) = patterns
+            .iter()
+            .find(|pattern| pattern.target == identity && pattern.key == key)
+        {
+            return Some(found.brush.clone());
+        }
+        let brush = pattern_tile(target, key.0, key.1, radius).ok()?;
+        if patterns.len() >= PATTERN_LIMIT {
+            patterns.clear();
+        }
+        patterns.push(Pattern {
+            target: identity,
+            key,
+            brush: brush.clone(),
+        });
+        Some(brush)
+    }
+
     fn ensure_target(&mut self) -> Option<(ID2D1DCRenderTarget, ID2D1SolidColorBrush)> {
         if self.target.is_none() || self.brush.is_none() {
+            self.patterns.get_mut().clear();
             unsafe {
                 let target = self
                     .factory
@@ -685,11 +793,13 @@ impl Engine {
             Err(error) if error.code() == D2DERR_RECREATE_TARGET => {
                 self.target = None;
                 self.brush = None;
+                self.patterns.get_mut().clear();
                 PaintStatus::Recreate
             }
             Err(_) => {
                 self.target = None;
                 self.brush = None;
+                self.patterns.get_mut().clear();
                 PaintStatus::Failed
             }
         }
@@ -892,6 +1002,117 @@ fn solid_pen(value: Color, style: PEN_STYLE) -> GdiObject {
     ))
 }
 
+fn wide_pen(value: Color, width: f32, round: bool) -> GdiObject {
+    let thickness = width.round().max(1.0) as u32;
+    if thickness == 1 {
+        return solid_pen(value, PS_SOLID);
+    }
+    let brush = LOGBRUSH {
+        lbStyle: BS_SOLID,
+        lbColor: COLORREF(value.colorref()),
+        lbHatch: 0,
+    };
+    let cap = if round {
+        PS_ENDCAP_ROUND
+    } else {
+        PS_ENDCAP_FLAT
+    };
+    GdiObject(HGDIOBJ(
+        unsafe {
+            ExtCreatePen(
+                PS_GEOMETRIC | PS_SOLID | cap | PS_JOIN_ROUND,
+                thickness,
+                &brush,
+                None,
+            )
+        }
+        .0,
+    ))
+}
+
+fn rect_f(rect: Rect) -> D2D_RECT_F {
+    D2D_RECT_F {
+        left: rect.x as f32,
+        top: rect.y as f32,
+        right: rect.right() as f32,
+        bottom: rect.bottom() as f32,
+    }
+}
+
+fn pixel(at: (f32, f32)) -> POINT {
+    POINT {
+        x: at.0.floor() as i32,
+        y: at.1.floor() as i32,
+    }
+}
+
+fn ellipse(center: (f32, f32), radius: f32) -> D2D1_ELLIPSE {
+    D2D1_ELLIPSE {
+        point: point(center.0, center.1),
+        radiusX: radius,
+        radiusY: radius,
+    }
+}
+
+fn figure(factory: &ID2D1Factory, points: &[(f32, f32)]) -> Option<ID2D1PathGeometry> {
+    let (first, rest) = points.split_first()?;
+    if rest.len() < 2 {
+        return None;
+    }
+    unsafe {
+        let geometry = factory.CreatePathGeometry().ok()?;
+        let sink = geometry.Open().ok()?;
+        sink.BeginFigure(point(first.0, first.1), D2D1_FIGURE_BEGIN_FILLED);
+        for next in rest {
+            sink.AddLine(point(next.0, next.1));
+        }
+        sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink.Close().ok()?;
+        Some(geometry)
+    }
+}
+
+pub fn dot_centers(size: i32, spacing: f32) -> impl Iterator<Item = f32> {
+    let half = spacing / 2.0;
+    let count = if spacing.is_nan() || spacing < 1.0 || (size as f32) <= half {
+        0
+    } else {
+        ((size as f32 - half) / spacing).ceil() as usize
+    };
+    (0..count).map(move |index| half + index as f32 * spacing)
+}
+
+fn gdi_ellipse(hdc: HDC, center: (f32, f32), radius: f32, fill: HGDIOBJ, pen: HGDIOBJ) {
+    if pen.is_invalid() || fill.is_invalid() {
+        return;
+    }
+    let left = (center.0 - radius).round() as i32;
+    let top = (center.1 - radius).round() as i32;
+    let right = ((center.0 + radius).round() as i32).max(left + 1);
+    let bottom = ((center.1 + radius).round() as i32).max(top + 1);
+    unsafe {
+        let previous_brush = SelectObject(hdc, fill);
+        let previous_pen = SelectObject(hdc, pen);
+        let _ = Ellipse(hdc, left, top, right, bottom);
+        SelectObject(hdc, previous_pen);
+        SelectObject(hdc, previous_brush);
+    }
+}
+
+fn gdi_polygon(hdc: HDC, points: &[(f32, f32)], fill: HGDIOBJ, pen: HGDIOBJ) {
+    if pen.is_invalid() || fill.is_invalid() {
+        return;
+    }
+    let mapped: Vec<POINT> = points.iter().map(|at| pixel(*at)).collect();
+    unsafe {
+        let previous_brush = SelectObject(hdc, fill);
+        let previous_pen = SelectObject(hdc, pen);
+        let _ = Polygon(hdc, &mapped);
+        SelectObject(hdc, previous_pen);
+        SelectObject(hdc, previous_brush);
+    }
+}
+
 fn rounded_shape(frame: Frame) -> D2D1_ROUNDED_RECT {
     let diameter = (frame.radius * 2.0)
         .min(frame.width)
@@ -914,11 +1135,27 @@ impl Painter<'_> {
         matches!(self.backend, Backend::Gdi { .. })
     }
 
+    pub fn dpi(&self) -> u32 {
+        match &self.backend {
+            Backend::Direct { engine, .. } => engine.dpi(),
+            Backend::Gdi { resources, .. } => resources.dpi(),
+        }
+    }
+
     pub fn text_metrics(&self, font: Font) -> TextMetrics {
         match &self.backend {
             Backend::Direct { engine, .. } => engine.text_metrics(font),
             Backend::Gdi { resources, .. } => resources.metrics[font.index()],
         }
+    }
+
+    pub fn snug_height(&self, font: Font) -> i32 {
+        let height = self.text_metrics(font).height.max(1);
+        fonts::preferred_height(font.pixels(self.dpi())).map_or(height, |snug| snug.min(height))
+    }
+
+    pub fn cap_height(&self, font: Font) -> i32 {
+        fonts::cap_height(font.pixels(self.dpi()))
     }
 
     pub fn measure(&self, text: &str, font: Font) -> i32 {
@@ -1219,7 +1456,15 @@ impl Painter<'_> {
         }
         let metric = self.text_metrics(font);
         let measure = |line: &str| self.measure(line, font);
-        let lines = plan_text(text, rect, align, valign, metric, &measure);
+        let lines = plan_text(
+            text,
+            rect,
+            align,
+            valign,
+            metric,
+            self.snug_height(font),
+            &measure,
+        );
         self.draw_lines(&lines, font, value, rect);
     }
 
@@ -1306,6 +1551,242 @@ impl Painter<'_> {
                 }
             }
         }
+    }
+}
+
+impl Painter<'_> {
+    pub fn clipped(&self, rect: Rect, draw: impl FnOnce(&Self)) {
+        if rect.is_empty() {
+            return;
+        }
+        match &self.backend {
+            Backend::Direct { target, .. } => {
+                unsafe { target.PushAxisAlignedClip(&rect_f(rect), D2D1_ANTIALIAS_MODE_ALIASED) };
+                draw(self);
+                unsafe { target.PopAxisAlignedClip() };
+            }
+            Backend::Gdi { hdc, .. } => {
+                let saved = unsafe { SaveDC(*hdc) };
+                unsafe {
+                    let _ = IntersectClipRect(*hdc, rect.x, rect.y, rect.right(), rect.bottom());
+                }
+                draw(self);
+                if saved != 0 {
+                    unsafe {
+                        let _ = RestoreDC(*hdc, saved);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn segment(&self, from: (f32, f32), to: (f32, f32), width: f32, value: Color, round: bool) {
+        if value.a == 0 || width.is_nan() || width <= 0.0 {
+            return;
+        }
+        match &self.backend {
+            Backend::Direct {
+                engine,
+                target,
+                brush,
+                ..
+            } => {
+                Painter::set_color(brush, value);
+                let (start, end) = (point(from.0, from.1), point(to.0, to.1));
+                unsafe {
+                    if round {
+                        target.DrawLine(start, end, *brush, width, &engine.round);
+                    } else {
+                        target.DrawLine(start, end, *brush, width, None::<&ID2D1StrokeStyle>);
+                    }
+                }
+            }
+            Backend::Gdi { hdc, .. } => {
+                let pen = wide_pen(value, width, round);
+                if pen.0.is_invalid() {
+                    return;
+                }
+                let (start, end) = (pixel(from), pixel(to));
+                unsafe {
+                    let previous = SelectObject(*hdc, pen.0);
+                    let _ = MoveToEx(*hdc, start.x, start.y, None);
+                    let _ = LineTo(*hdc, end.x, end.y);
+                    SelectObject(*hdc, previous);
+                }
+            }
+        }
+    }
+
+    pub fn polygon(&self, points: &[(f32, f32)], value: Color) {
+        if value.a == 0 || points.len() < 3 {
+            return;
+        }
+        match &self.backend {
+            Backend::Direct {
+                engine,
+                target,
+                brush,
+                ..
+            } => {
+                let Some(geometry) = figure(&engine.factory, points) else {
+                    return;
+                };
+                Painter::set_color(brush, value);
+                unsafe { target.FillGeometry(&geometry, *brush, None::<&ID2D1Brush>) };
+            }
+            Backend::Gdi { hdc, .. } => {
+                let fill = solid_brush(value);
+                let pen = solid_pen(value, PS_SOLID);
+                gdi_polygon(*hdc, points, fill.0, pen.0);
+            }
+        }
+    }
+
+    pub fn outline(&self, points: &[(f32, f32)], width: f32, value: Color) {
+        if value.a == 0 || points.len() < 3 || width.is_nan() || width <= 0.0 {
+            return;
+        }
+        match &self.backend {
+            Backend::Direct {
+                engine,
+                target,
+                brush,
+                ..
+            } => {
+                let Some(geometry) = figure(&engine.factory, points) else {
+                    return;
+                };
+                Painter::set_color(brush, value);
+                unsafe { target.DrawGeometry(&geometry, *brush, width, &engine.round) };
+            }
+            Backend::Gdi { hdc, .. } => {
+                let pen = wide_pen(value, width, true);
+                gdi_polygon(*hdc, points, unsafe { GetStockObject(NULL_BRUSH) }, pen.0);
+            }
+        }
+    }
+
+    pub fn disc(&self, center: (f32, f32), radius: f32, value: Color) {
+        if value.a == 0 || radius.is_nan() || radius <= 0.0 {
+            return;
+        }
+        match &self.backend {
+            Backend::Direct { target, brush, .. } => {
+                Painter::set_color(brush, value);
+                unsafe { target.FillEllipse(&ellipse(center, radius), *brush) };
+            }
+            Backend::Gdi { hdc, .. } => {
+                let fill = solid_brush(value);
+                let pen = solid_pen(value, PS_SOLID);
+                gdi_ellipse(*hdc, center, radius, fill.0, pen.0);
+            }
+        }
+    }
+
+    pub fn circle(&self, center: (f32, f32), radius: f32, width: f32, value: Color) {
+        if value.a == 0 || radius.is_nan() || radius <= 0.0 || width.is_nan() || width <= 0.0 {
+            return;
+        }
+        match &self.backend {
+            Backend::Direct { target, brush, .. } => {
+                Painter::set_color(brush, value);
+                unsafe {
+                    target.DrawEllipse(
+                        &ellipse(center, radius),
+                        *brush,
+                        width,
+                        None::<&ID2D1StrokeStyle>,
+                    )
+                };
+            }
+            Backend::Gdi { hdc, .. } => {
+                let pen = wide_pen(value, width, true);
+                gdi_ellipse(
+                    *hdc,
+                    center,
+                    radius,
+                    unsafe { GetStockObject(NULL_BRUSH) },
+                    pen.0,
+                );
+            }
+        }
+    }
+
+    pub fn dots(&self, area: Rect, spacing: f32, radius: f32, value: Color) {
+        if value.a == 0 || area.is_empty() || radius.is_nan() || radius <= 0.0 {
+            return;
+        }
+        let (left, top) = (area.x as f32, area.y as f32);
+        match &self.backend {
+            Backend::Direct {
+                engine,
+                target,
+                brush,
+                ..
+            } => {
+                let columns = dot_centers(area.w, spacing).count();
+                let rows = dot_centers(area.h, spacing).count();
+                if columns == 0 || rows == 0 {
+                    return;
+                }
+                if let Some(pattern) = engine.pattern(target, value, spacing, radius) {
+                    unsafe {
+                        pattern.SetOpacity(f32::from(value.a) / 255.0);
+                        pattern.SetTransform(&Matrix3x2::translation(left, top));
+                        target.FillRectangle(
+                            &D2D_RECT_F {
+                                left,
+                                top,
+                                right: left + columns as f32 * spacing,
+                                bottom: top + rows as f32 * spacing,
+                            },
+                            &pattern,
+                        );
+                    }
+                    return;
+                }
+                Painter::set_color(brush, value);
+                for y in dot_centers(area.h, spacing) {
+                    for x in dot_centers(area.w, spacing) {
+                        unsafe {
+                            target.FillEllipse(&ellipse((left + x, top + y), radius), *brush)
+                        };
+                    }
+                }
+            }
+            Backend::Gdi { hdc, .. } => {
+                let fill = solid_brush(value);
+                if fill.0.is_invalid() {
+                    return;
+                }
+                for y in dot_centers(area.h, spacing) {
+                    for x in dot_centers(area.w, spacing) {
+                        let (cx, cy) = (left + x, top + y);
+                        let rect_left = (cx - radius).round() as i32;
+                        let rect_top = (cy - radius).round() as i32;
+                        let dot = RECT {
+                            left: rect_left,
+                            top: rect_top,
+                            right: ((cx + radius).round() as i32).max(rect_left + 1),
+                            bottom: ((cy + radius).round() as i32).max(rect_top + 1),
+                        };
+                        unsafe { FillRect(*hdc, &dot, HBRUSH(fill.0.0)) };
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn line(&self, text: &str, font: Font, value: Color, x: i32, y: i32, clip: Rect) {
+        if text.is_empty() || value.a == 0 || clip.is_empty() {
+            return;
+        }
+        let placed = PlacedLine {
+            text: text.to_string(),
+            x,
+            y,
+        };
+        self.draw_lines(std::slice::from_ref(&placed), font, value, clip);
     }
 }
 

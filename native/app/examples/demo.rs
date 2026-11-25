@@ -3,10 +3,11 @@ mod comum;
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use comum::{capture, click, settle};
 use sistemas_lineares::gfx::save_png;
-use sistemas_lineares::{Button, Handles, Launch, create, dispatch, pump};
+use sistemas_lineares::{Button, Handles, Launch, create, diagnostics, dispatch, pump};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::{RDW_ALLCHILDREN, RDW_INVALIDATE, RDW_UPDATENOW, RedrawWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
@@ -39,6 +40,32 @@ impl Filme {
         save_png(&self.pasta.join(&nome), width, height, &pixels)?;
         let _ = writeln!(self.lista, "file '{nome}'\nduration {segundos:.2}");
         self.quadros += 1;
+        Ok(())
+    }
+
+    fn filmar(&mut self, main: HWND, ultimo: f32) -> windows::core::Result<()> {
+        let limite = Instant::now() + Duration::from_secs(4);
+        let mut anterior: Option<(String, Instant)> = None;
+        loop {
+            pump(main);
+            let animando = diagnostics(main).is_some_and(|estado| estado.graph_timer);
+            let (width, height, pixels) = capture(main)?;
+            let instante = Instant::now();
+            let nome = format!("{:03}.png", self.quadros);
+            save_png(&self.pasta.join(&nome), width, height, &pixels)?;
+            self.quadros += 1;
+            if let Some((quadro, quando)) = anterior.take() {
+                let duracao = (instante - quando).as_secs_f32();
+                let _ = writeln!(self.lista, "file '{quadro}'\nduration {duracao:.3}");
+            }
+            anterior = Some((nome, instante));
+            if !animando || instante > limite {
+                break;
+            }
+        }
+        if let Some((quadro, _)) = anterior {
+            let _ = writeln!(self.lista, "file '{quadro}'\nduration {ultimo:.2}");
+        }
         Ok(())
     }
 
@@ -75,13 +102,18 @@ fn preencher(
     filme: &mut Filme,
     handles: &Handles,
     linhas: &[&[&str]],
+    filmadas: &[usize],
 ) -> windows::core::Result<()> {
     let dimensao = linhas.len();
     for (row, valores) in linhas.iter().enumerate() {
         for (coluna, valor) in valores.iter().enumerate() {
             let column = if coluna == dimensao { 3 } else { coluna };
             digitar(handles, row, column, valor);
-            filme.quadro(handles.main, 0.32, true)?;
+            if coluna == dimensao && filmadas.contains(&row) {
+                filme.filmar(handles.main, 0.5)?;
+            } else {
+                filme.quadro(handles.main, 0.32, true)?;
+            }
         }
     }
     Ok(())
@@ -139,6 +171,7 @@ fn main() -> windows::core::Result<()> {
             &["2", "-1", "1", "3"],
             &["1", "2^1", "-1", "2"],
         ],
+        &[2],
     )?;
     filme.quadro(main, 2.6, true)?;
     passar_o_mouse(&handles, Button::LinkCramer);
@@ -159,7 +192,7 @@ fn main() -> windows::core::Result<()> {
         );
     }
     digitar(&handles, 0, 3, "7");
-    filme.quadro(main, 2.4, true)?;
+    filme.filmar(main, 2.4)?;
     passar_o_mouse(&handles, Button::Clear);
     filme.quadro(main, 0.45, false)?;
     pump(main);
@@ -167,7 +200,12 @@ fn main() -> windows::core::Result<()> {
     filme.quadro(main, 0.6, true)?;
     click(&handles, Button::Two);
     filme.quadro(main, 0.7, true)?;
-    preencher(&mut filme, &handles, &[&["1", "1", "2"], &["2", "2", "4"]])?;
+    preencher(
+        &mut filme,
+        &handles,
+        &[&["1", "1", "2"], &["2", "2", "4"]],
+        &[0, 1],
+    )?;
     filme.quadro(main, 3.6, true)?;
     filme.fechar().map_err(|error| {
         windows::core::Error::new(windows::core::HRESULT(-1), error.to_string())

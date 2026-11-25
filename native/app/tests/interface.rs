@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use comum::*;
 use sistemas_lineares::gfx::{Engine, GdiResources};
+use sistemas_lineares::graph;
 use sistemas_lineares::icons::Icon;
 use sistemas_lineares::layout::d;
 use sistemas_lineares::model;
@@ -99,7 +100,11 @@ fn fluxo_completo_por_mensagens() {
     assert_eq!(texto(h.copy), "Copiar");
     assert_eq!(texto(h.think), "Modo pensar");
     assert!(!habilitado(h.think), "modo pensar desabilitado no início");
-    assert_eq!(texto(h.helper), model::DEFAULT_HELPER);
+    assert_eq!(
+        texto(h.helper),
+        graph::INTRO_TWO,
+        "a dica mostra a legenda do gráfico"
+    );
     assert_eq!(texto(h.dimension), "2 equações · 2 incógnitas");
     assert!(
         visivel(h.empty_title)
@@ -113,17 +118,21 @@ fn fluxo_completo_por_mensagens() {
         32767
     );
 
-    clicar(&h, Button::Solve);
-    assert!(
-        texto(h.helper).contains("Equação 1"),
-        "validação inline: {}",
-        texto(h.helper)
+    tecla(&h, h.inputs[0][0], VK_RETURN);
+    assert_eq!(
+        foco(),
+        h.inputs[0][1],
+        "Enter num campo vazio vai ao próximo"
     );
     assert_eq!(
         texto(h.helper),
-        "Equação 1, coeficiente de x: Preencha todos os campos."
+        graph::INTRO_TWO,
+        "campo vazio não vira erro"
     );
-    assert_eq!(foco(), h.inputs[0][0]);
+    unsafe {
+        let _ = SetFocus(Some(h.inputs[0][0]));
+    }
+    pump(h.main);
 
     clicar(&h, Button::Example);
     let esperado = [
@@ -142,14 +151,17 @@ fn fluxo_completo_por_mensagens() {
         );
     }
     assert_eq!(foco(), h.inputs[0][0], "exemplo não mexe no foco");
-    assert_eq!(texto(h.helper), model::EXAMPLE_HELPER);
+    assert_eq!(
+        texto(h.helper),
+        "As retas se cruzam em (2, 1): esse ponto é a solução do sistema.",
+        "a legenda do gráfico substitui o aviso do exemplo"
+    );
     assert_eq!(
         [texto(h.values[0]), texto(h.values[1])],
         ["2", "1"],
         "o exemplo já aparece resolvido"
     );
 
-    clicar(&h, Button::Solve);
     assert_eq!(texto(h.values[0]), "2");
     assert_eq!(texto(h.values[1]), "1");
     assert!(visivel(h.values[0]) && visivel(h.values[1]) && !visivel(h.values[2]));
@@ -182,7 +194,6 @@ fn fluxo_completo_por_mensagens() {
     assert_eq!(texto(h.dimension), "3 equações · 3 incógnitas");
     assert!(visivel(h.inputs[2][2]) && visivel(h.inputs[0][2]));
     clicar(&h, Button::Example);
-    clicar(&h, Button::Solve);
     assert_eq!(
         [texto(h.values[0]), texto(h.values[1]), texto(h.values[2])],
         ["1", "2", "3"]
@@ -193,7 +204,6 @@ fn fluxo_completo_por_mensagens() {
             escrever(&h, row, column, "0");
         }
     }
-    clicar(&h, Button::Solve);
     assert_eq!(texto(h.title), "Infinitas soluções");
     assert!(visivel(h.general) && !visivel(h.values[0]));
     assert_eq!(
@@ -202,7 +212,6 @@ fn fluxo_completo_por_mensagens() {
     );
 
     escrever(&h, 0, 3, "1");
-    clicar(&h, Button::Solve);
     assert_eq!(texto(h.title), "Sem solução");
     assert_eq!(texto(h.general), model::GENERAL_NONE);
     assert_eq!(texto(h.note), model::NOTE_NONE);
@@ -217,7 +226,7 @@ fn fluxo_completo_por_mensagens() {
     assert_eq!(foco(), h.inputs[0][0]);
 
     escrever(&h, 0, 0, "1/0");
-    clicar(&h, Button::Solve);
+    tecla(&h, h.inputs[0][0], VK_RETURN);
     assert_eq!(foco(), h.inputs[0][0]);
     assert_eq!(
         selecao(h.inputs[0][0]),
@@ -249,7 +258,6 @@ fn ordem_do_tab_e_circular() {
         h.inputs[1][0],
         h.inputs[1][1],
         h.inputs[1][3],
-        h.solve,
         h.example,
         h.clear,
         h.links[0],
@@ -259,21 +267,20 @@ fn ordem_do_tab_e_circular() {
         h.two,
     ];
     assert_eq!(
-        sequencia(&h, 15, false),
+        sequencia(&h, 14, false),
         esperado,
         "Tab no 2x2 com Copiar desabilitado"
     );
     let mut reverso = esperado.clone();
     reverso.reverse();
     assert_eq!(
-        sequencia(&h, 15, true),
+        sequencia(&h, 14, true),
         reverso,
         "Shift+Tab inverte a ordem"
     );
     clicar(&h, Button::Three);
     clicar(&h, Button::Example);
-    clicar(&h, Button::Solve);
-    let tres = sequencia(&h, 23, false);
+    let tres = sequencia(&h, 22, false);
     let esperado3 = vec![
         h.two,
         h.three,
@@ -289,7 +296,6 @@ fn ordem_do_tab_e_circular() {
         h.inputs[2][1],
         h.inputs[2][2],
         h.inputs[2][3],
-        h.solve,
         h.example,
         h.clear,
         h.think,
@@ -309,11 +315,7 @@ fn teclado_enter_espaco_esc_e_atalhos() {
     let h = janela();
     tecla(&h, h.inputs[0][0], VK_RETURN);
     assert_eq!(foco(), h.inputs[0][1], "Enter leva ao próximo campo vazio");
-    assert_eq!(
-        texto(h.helper),
-        model::DEFAULT_HELPER,
-        "Enter não acusa erro"
-    );
+    assert_eq!(texto(h.helper), graph::INTRO_TWO, "Enter não acusa erro");
     unsafe {
         let _ = SetFocus(Some(h.example));
     }
@@ -351,7 +353,6 @@ fn teclado_enter_espaco_esc_e_atalhos() {
             escrever(&h, row, column, "0");
         }
     }
-    clicar(&h, Button::Solve);
     tecla(&h, h.general, VK_ESCAPE);
     tecla(&h, h.general, VK_RETURN);
     assert!(
@@ -611,15 +612,14 @@ fn fallback_gdi_continua_visivel() {
         distancia(cor, theme::CANVAS) < 120
     });
     assert!(titulo > 100, "título vazio no fallback ({titulo})");
-    let botao = imagem.conta((58, 667, 250, 709), |cor| {
+    let pilula = imagem.conta((62, 345, 142, 377), |cor| {
         distancia(cor, theme::ACCENT) < 30
     });
     assert!(
-        botao > 2000,
-        "botão Resolver preenchido no fallback ({botao})"
+        pilula > 1500,
+        "pílula do 2×2 preenchida no fallback ({pilula})"
     );
     clicar(&h, Button::Example);
-    clicar(&h, Button::Solve);
     let resolvida = capturar(h.main);
     let tile = resolvida.conta((702, 406, 1085, 464), |cor| {
         distancia(cor, theme::TILE_FILL) < 20
@@ -662,9 +662,9 @@ fn alto_contraste_reage_ao_vivo() {
         "card de resultado sem lilás no alto contraste"
     );
     assert_eq!(
-        imagem.cor(240, 688),
+        imagem.cor(68, 349),
         sistema.highlight,
-        "botão primário com COLOR_HIGHLIGHT"
+        "pílula do 2×2 com COLOR_HIGHLIGHT"
     );
     let campo = imagem.cor(110, 470);
     assert_eq!(campo, sistema.window, "interior do campo com COLOR_WINDOW");
@@ -758,7 +758,7 @@ fn leitor_de_tela_nomes_e_regioes_vivas() {
     assert_eq!(nome_acessivel(h.values[1]), "Valor de y");
     assert_eq!(nome_acessivel(h.author), "Feito por Lucas Lima · RA 185964");
     assert_eq!(descricao_acessivel(h.author), model::AUTHOR_DESCRIPTION);
-    assert_eq!(nome_acessivel(h.solve), "Resolver sistema");
+    assert_eq!(nome_acessivel(h.example), "Usar exemplo");
     let diag = diagnostics(h.main).expect("diagnóstico");
     assert_eq!(
         diag.live_regions, 5,
@@ -778,10 +778,11 @@ fn leitor_de_tela_nomes_e_regioes_vivas() {
     };
     assert!(!gancho.is_invalid(), "gancho de eventos de acessibilidade");
     EVENTOS.with(|eventos| eventos.borrow_mut().clear());
-    clicar(&h, Button::Solve);
+    escrever(&h, 0, 0, "1/0");
+    tecla(&h, h.inputs[0][0], VK_RETURN);
     assert!(esperar_evento(&h, h.helper), "erro anunciado pelo helper");
     clicar(&h, Button::Example);
-    clicar(&h, Button::Solve);
+    tecla(&h, h.inputs[0][0], VK_RETURN);
     assert!(
         esperar_evento(&h, h.title),
         "resultado anunciado pelo título"
@@ -878,14 +879,14 @@ fn dpi_por_monitor_recria_fontes_e_layout() {
         altura_depois * 2 >= altura_antes * 3 - 2,
         "fonte GDI recriada para 144 DPI: {altura_antes} -> {altura_depois}"
     );
-    assert_eq!(depois.layout.solve.w, d(1.5, 192));
+    assert_eq!(depois.layout.example.w, d(1.5, 155));
     assert_eq!(depois.layout.author.h, d(1.5, 42));
     let mut janela_depois = RECT::default();
     unsafe {
         let _ = GetWindowRect(h.main, &mut janela_depois);
     }
     assert_eq!(janela_depois, sugerido, "usa o retângulo sugerido");
-    assert_ne!(antes.layout.solve, depois.layout.solve);
+    assert_ne!(antes.layout.example, depois.layout.example);
     let imagem = capturar(h.main);
     assert_eq!(imagem.cor(6, 6), theme::CANVAS);
     unsafe {
@@ -898,8 +899,8 @@ fn dpi_por_monitor_recria_fontes_e_layout() {
     }
     pump(h.main);
     assert_eq!(
-        diagnostics(h.main).expect("diagnóstico").layout.solve,
-        antes.layout.solve,
+        diagnostics(h.main).expect("diagnóstico").layout.example,
+        antes.layout.example,
         "volta ao layout de 96 DPI"
     );
     fechar(&h);
@@ -1007,7 +1008,7 @@ fn reativar_devolve_o_foco() {
 fn hover_cursor_de_mao_e_foco_so_pelo_teclado() {
     let h = janela();
     let antes = capturar(h.main);
-    let ponto = (262 + 6, 667 + 21);
+    let ponto = (58 + 6, 667 + 21);
     assert_eq!(
         antes.cor(ponto.0, ponto.1),
         theme::SURFACE,
@@ -1073,7 +1074,7 @@ fn hover_cursor_de_mao_e_foco_so_pelo_teclado() {
     }
     pump(h.main);
     let anel = |imagem: &Imagem| {
-        imagem.conta((262 + 4, 667 + 4, 262 + 151, 667 + 38), |cor| {
+        imagem.conta((58, 667, 58 + 155, 667 + 42), |cor| {
             distancia(cor, theme::ACCENT) < 40
         })
     };
@@ -1173,7 +1174,6 @@ fn modo_pensar_por_mensagens() {
     clicar(&h, Button::Think);
     assert!(!diagnostics(h.main).expect("diagnóstico").thinking);
     clicar(&h, Button::Example);
-    clicar(&h, Button::Solve);
     assert!(habilitado(h.think), "modo pensar habilitado após resolver");
 
     clicar(&h, Button::Think);
@@ -1190,7 +1190,6 @@ fn modo_pensar_por_mensagens() {
         h.inputs[0][0],
         h.inputs[1][3],
         h.two,
-        h.solve,
         h.example,
         h.clear,
         h.think,
@@ -1199,6 +1198,7 @@ fn modo_pensar_por_mensagens() {
         h.title,
         h.note,
         h.helper,
+        h.graph,
         h.dimension,
     ] {
         assert!(
@@ -1330,7 +1330,6 @@ fn modo_pensar_desenhado_em_todos_os_modos() {
         let h = janela_com(launch);
         clicar(&h, Button::Three);
         clicar(&h, Button::Example);
-        clicar(&h, Button::Solve);
         clicar(&h, Button::Think);
         let estado = diagnostics(h.main).expect("diagnóstico");
         assert!(estado.thinking, "{nome}");

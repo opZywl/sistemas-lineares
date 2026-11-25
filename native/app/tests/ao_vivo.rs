@@ -5,6 +5,7 @@ mod comum;
 use std::time::{Duration, Instant};
 
 use comum::*;
+use sistemas_lineares::graph;
 use sistemas_lineares::model::{self, Card, Waiting};
 use sistemas_lineares::theme;
 use sistemas_lineares::{Button, Handles, Launch, diagnostics, pump};
@@ -154,7 +155,7 @@ fn prefixo_em_digitacao_e_erro_por_campo() {
     ocioso(&h);
     assert_eq!(
         texto(h.helper),
-        model::DEFAULT_HELPER,
+        graph::INTRO_TWO,
         "prefixo com foco não acusa erro"
     );
     assert_eq!(
@@ -168,7 +169,7 @@ fn prefixo_em_digitacao_e_erro_por_campo() {
     escrever(&h, 0, 1, "1/0");
     assert_eq!(
         texto(h.helper),
-        model::DEFAULT_HELPER,
+        graph::INTRO_TWO,
         "o erro só aparece depois da pausa"
     );
     ocioso(&h);
@@ -184,7 +185,7 @@ fn prefixo_em_digitacao_e_erro_por_campo() {
     escrever(&h, 0, 1, "1/2");
     assert_eq!(
         texto(h.helper),
-        model::DEFAULT_HELPER,
+        graph::INTRO_TWO,
         "corrigir o próprio campo apaga o erro"
     );
     focar(&h, h.inputs[1][1]);
@@ -194,7 +195,7 @@ fn prefixo_em_digitacao_e_erro_por_campo() {
         "sair do campo revela o erro"
     );
     escrever(&h, 0, 0, "2^3");
-    assert_eq!(texto(h.helper), model::DEFAULT_HELPER);
+    assert_eq!(texto(h.helper), graph::INTRO_TWO);
     preencher(&h, &[(0, 3, "8"), (1, 1, "1"), (1, 3, "7")]);
     assert_eq!(cartao(&h), Card::Result { stale: false });
     assert_eq!(
@@ -222,8 +223,8 @@ fn enter_e_setas_navegam_entre_campos() {
     digitar(&h, h.inputs[1][3], "1");
     assert_eq!(
         texto(h.helper),
-        model::DEFAULT_HELPER,
-        "digitar tira o aviso"
+        "As retas se cruzam em (2, 1): esse ponto é a solução do sistema.",
+        "digitar tira o aviso e a legenda do gráfico volta"
     );
     assert_eq!(cartao(&h), Card::Result { stale: false });
     tecla(&h, h.inputs[1][3], VK_RETURN);
@@ -543,8 +544,8 @@ fn tamanhos_guardam_sistemas_separados_e_dica_do_valor_lido() {
     escrever(&h, 0, 0, "1");
     assert_eq!(
         texto(h.helper),
-        model::DEFAULT_HELPER,
-        "sem potência, a dica volta ao normal"
+        "Os três planos se cruzam em (1, 2, 3): esse ponto é a solução do sistema.",
+        "sem potência, a dica volta à legenda do gráfico"
     );
     fechar(&h);
 }
@@ -572,8 +573,13 @@ fn modo_pensar_com_numeros_enormes_responde() {
             (2, 3, "2e1000"),
         ],
     );
-    clicar(&h, Button::Solve);
-    assert_eq!(cartao(&h), Card::Result { stale: false });
+    focar(&h, h.inputs[2][3]);
+    tecla(&h, h.inputs[2][3], VK_RETURN);
+    assert_eq!(
+        cartao(&h),
+        Card::Result { stale: false },
+        "Enter resolve o sistema grande"
+    );
     let inicio = Instant::now();
     clicar(&h, Button::Think);
     let abrir = inicio.elapsed();

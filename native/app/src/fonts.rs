@@ -15,10 +15,49 @@ pub use sistemas_lineares_ui::text::{
 };
 
 pub const FALLBACK: &str = "Segoe UI";
+pub const TYPICAL_CAP_RATIO: f32 = 0.7;
 
 struct Registration(Vec<isize>);
 
 static GDI_FONTS: OnceLock<Registration> = OnceLock::new();
+static CAP_RATIO: OnceLock<Option<f32>> = OnceLock::new();
+
+pub fn cap_ratio(data: &[u8]) -> Option<f32> {
+    let read16 = |offset: usize| {
+        data.get(offset..offset + 2)
+            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+    };
+    let read32 = |offset: usize| {
+        data.get(offset..offset + 4)
+            .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    };
+    let tables = usize::from(read16(4)?);
+    let mut head = None;
+    let mut metrics = None;
+    for index in 0..tables {
+        let record = 12 + 16 * index;
+        let offset = read32(record + 8)? as usize;
+        match data.get(record..record + 4)? {
+            b"head" => head = Some(offset),
+            b"OS/2" => metrics = Some(offset),
+            _ => {}
+        }
+    }
+    let units = f32::from(read16(head? + 18)?);
+    let metrics = metrics?;
+    if read16(metrics)? < 2 {
+        return None;
+    }
+    let cap = f32::from(read16(metrics + 88)? as i16);
+    (units > 0.0 && cap > 0.0).then(|| cap / units)
+}
+
+pub fn cap_height(pixels: i32) -> i32 {
+    let ratio = CAP_RATIO
+        .get_or_init(|| cap_ratio(REGULAR))
+        .unwrap_or(TYPICAL_CAP_RATIO);
+    (pixels.max(0) as f32 * ratio).round() as i32
+}
 
 pub fn register_gdi() -> bool {
     let registration = GDI_FONTS.get_or_init(|| {
@@ -158,5 +197,16 @@ mod tests {
         let font = GdiFont::create(FAMILY, 16, false).unwrap();
         assert_eq!(font.face_name(), FAMILY);
         assert!(font.metrics().height >= 20);
+    }
+
+    #[test]
+    fn altura_das_maiusculas_vem_da_propria_fonte() {
+        assert_eq!(cap_ratio(REGULAR), Some(0.7));
+        assert_eq!(cap_ratio(BOLD), Some(0.7));
+        assert_eq!(cap_ratio(&[]), None);
+        assert_eq!(cap_height(12), 8);
+        assert_eq!(cap_height(18), 13);
+        assert_eq!(cap_height(20), 14);
+        assert_eq!(cap_height(0), 0);
     }
 }

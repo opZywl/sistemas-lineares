@@ -21,13 +21,10 @@ fn gdi_e_user_estaveis_apos_200_ciclos() {
             },
         );
         clicar(h, Button::Example);
-        clicar(h, Button::Solve);
         escrever(h, 0, 0, "0");
         escrever(h, 1, 0, "0");
         escrever(h, 0, 1, if indice % 3 == 0 { "0" } else { "1" });
-        clicar(h, Button::Solve);
         escrever(h, 0, 3, "1/0");
-        clicar(h, Button::Solve);
         clicar(h, Button::Clear);
         let _ = capturar(h.main);
     };

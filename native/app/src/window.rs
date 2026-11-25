@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
+use std::time::Instant;
 
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
@@ -23,8 +24,9 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemServices::{MK_SHIFT, SS_NOPREFIX, SS_OWNERDRAW};
 use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_I4};
 use windows::Win32::UI::Accessibility::{
-    CAccPropServices, HCF_HIGHCONTRASTON, HIGHCONTRASTW, IAccPropServices,
-    LiveSetting_Property_GUID, NotifyWinEvent, PROPID_ACC_DESCRIPTION, PROPID_ACC_NAME, Polite,
+    CAccPropServices, HCF_HIGHCONTRASTON, HIGHCONTRASTW, HelpText_Property_GUID, IAccPropServices,
+    LiveSetting_Property_GUID, NotifyWinEvent, PROPID_ACC_DESCRIPTION, PROPID_ACC_NAME,
+    PROPID_ACC_ROLE, Polite, ROLE_SYSTEM_GRAPHIC,
 };
 use windows::Win32::UI::Controls::{
     DRAWITEMSTRUCT, EM_GETLINECOUNT, EM_GETSEL, EM_REPLACESEL, EM_SETLIMITTEXT, EM_SETMARGINS,
@@ -51,10 +53,12 @@ use windows::core::{BOOL, HSTRING, PCWSTR, PWSTR, Result, w};
 use crate::clipboard;
 use crate::fonts::{self, GdiFont, TextMetrics};
 use crate::gfx::{Align, Engine, Frame, GdiResources, PaintStatus, Painter, Run, VAlign};
+use crate::graph::{self, Motion, Sketch};
 use crate::icons::Icon;
 use crate::install;
 use crate::layout::{self, Layout, Metrics, Rect, Viewport, d};
 use crate::model::{self, Card, Focus, Model, Outcome, Waiting};
+use crate::plot;
 use crate::settings::{self, Bounds, Placement, Saved};
 use crate::theme::{self, Color, Font, Palette, STALE_PERCENT, SystemColors};
 use crate::thinking::{self, Ink, Item, Measure, Page, STEP_POOL};
@@ -63,7 +67,6 @@ use sistemas_lineares_core::Method;
 pub const ID_TWO: u16 = 100;
 pub const ID_THREE: u16 = 101;
 pub const ID_INPUT: u16 = 110;
-pub const ID_SOLVE: u16 = 130;
 pub const ID_EXAMPLE: u16 = 131;
 pub const ID_CLEAR: u16 = 132;
 pub const ID_COPY: u16 = 133;
@@ -73,7 +76,10 @@ pub const ID_BACK: u16 = 136;
 pub const ID_METHOD: u16 = 137;
 pub const ID_COPY_STEPS: u16 = 160;
 pub const ID_LINK: u16 = 144;
+pub const ID_GRAPH: u16 = 158;
 const TIMER_IDLE: usize = 1;
+const TIMER_GRAPH: usize = 2;
+const GRAPH_FRAME_MS: u32 = 15;
 const WM_APP_LEAVE: u32 = WM_APP + 1;
 const TOOL_THINK_DISABLED: usize = 1;
 const TOOL_COPY_DISABLED: usize = 2;
@@ -97,7 +103,6 @@ const CANVAS_CLASS: PCWSTR = w!("SistemasLineares.Tela");
 pub enum Button {
     Two,
     Three,
-    Solve,
     Example,
     Clear,
     Copy,
@@ -114,10 +119,9 @@ pub enum Button {
 }
 
 impl Button {
-    pub const ALL: [Button; 16] = [
+    pub const ALL: [Button; 15] = [
         Button::Two,
         Button::Three,
-        Button::Solve,
         Button::Example,
         Button::Clear,
         Button::Copy,
@@ -193,7 +197,6 @@ impl Button {
         match self {
             Button::Two => ID_TWO,
             Button::Three => ID_THREE,
-            Button::Solve => ID_SOLVE,
             Button::Example => ID_EXAMPLE,
             Button::Clear => ID_CLEAR,
             Button::Copy => ID_COPY,
@@ -218,20 +221,19 @@ impl Button {
         match self {
             Button::Two => 0,
             Button::Three => 1,
-            Button::Solve => 2,
-            Button::Example => 3,
-            Button::Clear => 4,
-            Button::Copy => 5,
-            Button::Author => 6,
-            Button::Think => 7,
-            Button::Back => 8,
-            Button::MethodGaussJordan => 9,
-            Button::MethodCramer => 10,
-            Button::MethodGauss => 11,
-            Button::CopySteps => 12,
-            Button::LinkGaussJordan => 13,
-            Button::LinkCramer => 14,
-            Button::LinkGauss => 15,
+            Button::Example => 2,
+            Button::Clear => 3,
+            Button::Copy => 4,
+            Button::Author => 5,
+            Button::Think => 6,
+            Button::Back => 7,
+            Button::MethodGaussJordan => 8,
+            Button::MethodCramer => 9,
+            Button::MethodGauss => 10,
+            Button::CopySteps => 11,
+            Button::LinkGaussJordan => 12,
+            Button::LinkCramer => 13,
+            Button::LinkGauss => 14,
         }
     }
 
@@ -239,7 +241,6 @@ impl Button {
         match self {
             Button::Two => model::TWO_LABEL,
             Button::Three => model::THREE_LABEL,
-            Button::Solve => model::SOLVE_LABEL,
             Button::Example => model::EXAMPLE_LABEL,
             Button::Clear => model::CLEAR_LABEL,
             Button::Copy => model::COPY_LABEL,
@@ -266,7 +267,6 @@ impl Button {
             | Button::LinkGaussJordan
             | Button::LinkCramer
             | Button::LinkGauss => None,
-            Button::Solve => Some(Icon::ArrowRight),
             Button::Example => Some(Icon::Sparkles),
             Button::Clear => Some(Icon::Reset),
             Button::Copy | Button::CopySteps => Some(Icon::Copy),
@@ -274,10 +274,6 @@ impl Button {
             Button::Think => Some(Icon::Bulb),
             Button::Back => Some(Icon::ArrowLeft),
         }
-    }
-
-    const fn primary(self) -> bool {
-        matches!(self, Button::Solve)
     }
 
     const fn quiet(self) -> bool {
@@ -296,7 +292,6 @@ impl Button {
         match self {
             Button::Two => layout.two,
             Button::Three => layout.three,
-            Button::Solve => layout.solve,
             Button::Example => layout.example,
             Button::Clear => layout.clear,
             Button::Copy => layout.copy,
@@ -385,6 +380,7 @@ impl Label {
         match self {
             Label::EmptyTitle => (Align::Center, VAlign::Center),
             Label::EmptyDescription => (Align::Center, VAlign::Top),
+            Label::Helper => (Align::Left, VAlign::Center),
             _ => (Align::Left, VAlign::Top),
         }
     }
@@ -418,11 +414,15 @@ enum Control {
     General,
     Label(Label),
     Step(usize),
+    Graph,
 }
 
 fn classify(id: u16) -> Option<Control> {
     if (ID_STEP..ID_STEP + STEP_POOL as u16).contains(&id) {
         return Some(Control::Step(usize::from(id - ID_STEP)));
+    }
+    if id == ID_GRAPH {
+        return Some(Control::Graph);
     }
     if let Some(button) = Button::from_id(id) {
         return Some(Control::Button(button));
@@ -448,7 +448,6 @@ pub struct Handles {
     pub inputs: [[HWND; 4]; 3],
     pub two: HWND,
     pub three: HWND,
-    pub solve: HWND,
     pub example: HWND,
     pub clear: HWND,
     pub copy: HWND,
@@ -464,6 +463,7 @@ pub struct Handles {
     pub general: HWND,
     pub dimension: HWND,
     pub helper: HWND,
+    pub graph: HWND,
     pub title: HWND,
     pub description: HWND,
     pub empty_title: HWND,
@@ -476,7 +476,6 @@ impl Handles {
         match button {
             Button::Two => self.two,
             Button::Three => self.three,
-            Button::Solve => self.solve,
             Button::Example => self.example,
             Button::Clear => self.clear,
             Button::Copy => self.copy,
@@ -529,6 +528,9 @@ impl Handles {
         if self.general == hwnd {
             return Some(Control::General);
         }
+        if self.graph == hwnd {
+            return Some(Control::Graph);
+        }
         if let Some(index) = self.steps.iter().position(|step| *step == hwnd) {
             return Some(Control::Step(index));
         }
@@ -555,6 +557,7 @@ pub struct Launch {
     pub activate: bool,
     pub renderer: Renderer,
     pub high_contrast: Option<bool>,
+    pub animations: Option<bool>,
     pub idle_delay_ms: u32,
 }
 
@@ -569,6 +572,7 @@ impl Default for Launch {
             activate: true,
             renderer: Renderer::Direct2D,
             high_contrast: None,
+            animations: None,
             idle_delay_ms: 700,
         }
     }
@@ -585,6 +589,7 @@ impl Launch {
             activate: false,
             renderer: Renderer::Direct2D,
             high_contrast: None,
+            animations: None,
             idle_delay_ms: 700,
         }
     }
@@ -610,6 +615,11 @@ pub struct Diagnostics {
     pub focused_field: Option<(usize, usize)>,
     pub footer_tip: Option<Method>,
     pub last_announced: Option<String>,
+    pub animations: bool,
+    pub graph_timer: bool,
+    pub graph_busy: bool,
+    pub graph_frames: usize,
+    pub graph_scene: String,
 }
 
 struct Brushes(Vec<(Color, HBRUSH)>);
@@ -711,7 +721,7 @@ struct App {
     brushes: RefCell<Brushes>,
     syncing: Cell<bool>,
     in_layout: Cell<bool>,
-    hover: [Cell<bool>; 16],
+    hover: [Cell<bool>; 15],
     last_focus: Cell<HWND>,
     idle_delay: u32,
     idle_pending: Cell<bool>,
@@ -726,6 +736,12 @@ struct App {
     accessibility: RefCell<Option<IAccPropServices>>,
     annotated: RefCell<Vec<HWND>>,
     live: Cell<usize>,
+    motion: RefCell<Motion>,
+    clock: Instant,
+    animations: Cell<bool>,
+    motion_setting: Cell<Option<bool>>,
+    graph_timer: Cell<bool>,
+    graph_frames: Cell<usize>,
 }
 
 fn loword(value: usize) -> u16 {
@@ -841,6 +857,20 @@ pub fn system_high_contrast() -> bool {
     }
     .is_ok();
     queried && (contrast.dwFlags.0 & HCF_HIGHCONTRASTON.0) != 0
+}
+
+pub fn system_animations() -> bool {
+    let mut enabled = BOOL(1);
+    let queried = unsafe {
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            Some((&mut enabled as *mut BOOL).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    }
+    .is_ok();
+    !queried || enabled.as_bool()
 }
 
 pub fn system_colors() -> SystemColors {
@@ -1265,16 +1295,7 @@ fn handle_return(main: HWND, message: &MSG) -> bool {
             app.enter_field(row, column);
             true
         }
-        Some(Control::Value(_)) => {
-            send(
-                handles.canvas,
-                WM_COMMAND,
-                makelong(ID_SOLVE, BN_CLICKED as u16) as usize,
-                handles.solve.0 as isize,
-            );
-            true
-        }
-        Some(Control::General) => true,
+        Some(Control::Value(_) | Control::General) => true,
         _ => false,
     }
 }
@@ -1283,6 +1304,27 @@ pub fn diagnostics(main: HWND) -> Option<Diagnostics> {
     let app = unsafe { app_from(main) }?;
     let view = app.view.try_borrow().ok()?;
     let dimension = app.model.try_borrow().map_or(2, |model| model.dimension());
+    let now = app.now();
+    let plot = view.layout.plot;
+    let contrast = app.palette.get().high_contrast;
+    let (graph_busy, graph_scene) = app
+        .motion
+        .try_borrow()
+        .map(|motion| {
+            let scene = if plot.is_empty() {
+                Vec::new()
+            } else {
+                motion.scene(
+                    now,
+                    f64::from(plot.w),
+                    f64::from(plot.h),
+                    f64::from(view.scale),
+                    contrast,
+                )
+            };
+            (motion.busy(now, contrast), graph::describe(&scene))
+        })
+        .unwrap_or_default();
     let direct2d = app.renderer == Renderer::Direct2D
         && app
             .engine
@@ -1324,6 +1366,11 @@ pub fn diagnostics(main: HWND) -> Option<Diagnostics> {
             .try_borrow()
             .ok()
             .and_then(|text| text.clone()),
+        animations: app.animations.get(),
+        graph_timer: app.graph_timer.get(),
+        graph_busy,
+        graph_frames: app.graph_frames.get(),
+        graph_scene,
     })
 }
 
@@ -1331,6 +1378,13 @@ pub fn force_high_contrast(main: HWND, high_contrast: Option<bool>) {
     if let Some(app) = unsafe { app_from(main) } {
         app.contrast.set(high_contrast);
         app.refresh_theme(main);
+    }
+}
+
+pub fn force_animations(main: HWND, animations: Option<bool>) {
+    if let Some(app) = unsafe { app_from(main) } {
+        app.motion_setting.set(animations);
+        app.refresh_animations();
     }
 }
 
@@ -1423,7 +1477,7 @@ unsafe extern "system" fn control_proc(
     }
 }
 
-fn live_variant() -> VARIANT {
+fn integer_variant(value: i32) -> VARIANT {
     VARIANT {
         Anonymous: VARIANT_0 {
             Anonymous: ManuallyDrop::new(VARIANT_0_0 {
@@ -1431,10 +1485,14 @@ fn live_variant() -> VARIANT {
                 wReserved1: 0,
                 wReserved2: 0,
                 wReserved3: 0,
-                Anonymous: VARIANT_0_0_0 { lVal: Polite.0 },
+                Anonymous: VARIANT_0_0_0 { lVal: value },
             }),
         },
     }
+}
+
+fn live_variant() -> VARIANT {
+    integer_variant(Polite.0)
 }
 
 impl App {
@@ -1481,7 +1539,17 @@ impl App {
             accessibility: RefCell::new(None),
             annotated: RefCell::new(Vec::new()),
             live: Cell::new(0),
+            motion: RefCell::new(Motion::new()),
+            clock: Instant::now(),
+            animations: Cell::new(launch.animations.unwrap_or_else(system_animations)),
+            motion_setting: Cell::new(launch.animations),
+            graph_timer: Cell::new(false),
+            graph_frames: Cell::new(0),
         }
+    }
+
+    fn now(&self) -> f64 {
+        self.clock.elapsed().as_secs_f64()
     }
 
     fn adopt_dpi(&self, dpi: u32) {
@@ -1606,13 +1674,6 @@ impl App {
                 handles.inputs[row][column] = edit;
             }
         }
-        handles.solve = self.child(
-            canvas,
-            w!("BUTTON"),
-            Button::Solve.label(),
-            button_style,
-            ID_SOLVE,
-        )?;
         handles.example = self.child(
             canvas,
             w!("BUTTON"),
@@ -1634,6 +1695,13 @@ impl App {
             "",
             label_style | WS_VISIBLE,
             ID_DIMENSION,
+        )?;
+        handles.graph = self.child(
+            canvas,
+            w!("STATIC"),
+            graph::GRAPH_NAME,
+            label_style,
+            ID_GRAPH,
         )?;
         handles.helper = self.child(
             canvas,
@@ -1963,6 +2031,14 @@ impl App {
             for index in 0..3 {
                 name(handles.values[index], &model::accessible_value_name(index));
             }
+            name(handles.graph, graph::GRAPH_NAME);
+            let _ = service.SetHwndProp(
+                handles.graph,
+                OBJID_CLIENT.0 as u32,
+                CHILDID_SELF,
+                PROPID_ACC_ROLE,
+                &integer_variant(ROLE_SYSTEM_GRAPHIC as i32),
+            );
             for method in Method::ALL {
                 name(
                     handles.button(Button::for_method(method)),
@@ -2057,6 +2133,25 @@ impl App {
         }
     }
 
+    fn describe_graph(&self, text: &str) {
+        let hwnd = self.handles.get().graph;
+        self.set_accessible_description(hwnd, text);
+        let Ok(service) = self.accessibility.try_borrow() else {
+            return;
+        };
+        if let Some(service) = service.as_ref() {
+            unsafe {
+                let _ = service.SetHwndPropStr(
+                    hwnd,
+                    OBJID_CLIENT.0 as u32,
+                    CHILDID_SELF,
+                    HelpText_Property_GUID,
+                    &HSTRING::from(text),
+                );
+            }
+        }
+    }
+
     fn set_accessible_name(&self, hwnd: HWND, text: &str) {
         let Ok(service) = self.accessibility.try_borrow() else {
             return;
@@ -2100,6 +2195,8 @@ impl App {
                         &[
                             PROPID_ACC_NAME,
                             PROPID_ACC_DESCRIPTION,
+                            PROPID_ACC_ROLE,
+                            HelpText_Property_GUID,
                             LiveSetting_Property_GUID,
                         ],
                     );
@@ -2217,7 +2314,9 @@ impl App {
         unsafe {
             match message {
                 WM_SIZE => {
-                    if wparam.0 as u32 != SIZE_MINIMIZED {
+                    if wparam.0 as u32 == SIZE_MINIMIZED {
+                        self.pace_graph();
+                    } else {
                         self.relayout(true);
                     }
                     LRESULT(0)
@@ -2267,7 +2366,6 @@ impl App {
                     self.command(loword(wparam.0), hiword(wparam.0));
                     LRESULT(0)
                 }
-                DM_GETDEFID => LRESULT(makelong(ID_SOLVE, DC_HASDEFID as u16) as isize),
                 WM_ACTIVATE => {
                     if u32::from(loword(wparam.0)) == WA_INACTIVE {
                         self.remember_focus();
@@ -2312,6 +2410,9 @@ impl App {
                 }
                 WM_THEMECHANGED | WM_SETTINGCHANGE | WM_SYSCOLORCHANGE => {
                     self.refresh_theme(hwnd);
+                    if message == WM_SETTINGCHANGE {
+                        self.refresh_animations();
+                    }
                     DefWindowProcW(hwnd, message, wparam, lparam)
                 }
                 WM_ENDSESSION => {
@@ -2324,12 +2425,17 @@ impl App {
                     self.on_idle();
                     LRESULT(0)
                 }
+                WM_TIMER if wparam.0 == TIMER_GRAPH => {
+                    self.on_graph_frame();
+                    LRESULT(0)
+                }
                 WM_APP_LEAVE => {
                     self.on_leave(wparam.0 / 4, wparam.0 % 4);
                     LRESULT(0)
                 }
                 WM_DESTROY => {
                     self.cancel_idle();
+                    self.stop_graph_timer();
                     self.save_settings(hwnd);
                     self.clear_annotations();
                     if self.quit_on_destroy {
@@ -2472,7 +2578,9 @@ impl App {
                     }
                 }
                 (
-                    Some(Control::Button(_)) | Some(Control::Label(_)) | Some(Control::Step(_)),
+                    Some(
+                        Control::Button(_) | Control::Label(_) | Control::Step(_) | Control::Graph,
+                    ),
                     WM_ERASEBKGND,
                 ) => {
                     return LRESULT(1);
@@ -2568,7 +2676,6 @@ impl App {
             Some(Control::Button(button)) if u32::from(code) == BN_CLICKED => match button {
                 Button::Two => self.change_dimension(2),
                 Button::Three => self.change_dimension(3),
-                Button::Solve => self.solve(),
                 Button::Example => self.fill_example(),
                 Button::Clear => self.clear(),
                 Button::Copy => self.copy(),
@@ -2635,22 +2742,6 @@ impl App {
             for (row, column, text) in texts {
                 model.store_input(row, column, &text);
             }
-        }
-    }
-
-    fn solve(&self) {
-        self.cancel_idle();
-        self.read_inputs();
-        let focus = match self.model.try_borrow_mut() {
-            Ok(mut model) => model.solve(),
-            Err(_) => return,
-        };
-        if focus.is_some() {
-            *self.last_announced.borrow_mut() = None;
-            self.sync(focus, false, Announce::Label(Label::Helper));
-        } else {
-            self.sync(None, false, Announce::Nothing);
-            self.announce_result(None);
         }
     }
 
@@ -3063,10 +3154,19 @@ impl App {
             self.syncing.set(false);
         }
         set_text(handles.dimension, &model.dimension_text());
-        set_text(handles.helper, &model.helper());
+        let sketch = model.sketch();
+        let caption = graph::caption(&sketch);
+        let helper = if model.helper_is_caption() {
+            caption.clone()
+        } else {
+            model.helper()
+        };
+        set_text(handles.helper, &helper);
         invalidate(handles.helper);
-        self.set_accessible_name(handles.helper, &model.helper());
+        self.set_accessible_name(handles.helper, &helper);
         self.set_accessible_name(handles.dimension, &model.dimension_text());
+        self.describe_graph(&caption);
+        self.update_graph(&sketch);
         set_text(handles.title, model.title().unwrap_or(""));
         if let Some(text) = model.announcement() {
             self.set_accessible_name(handles.title, &text);
@@ -3180,9 +3280,6 @@ impl App {
                     send(edit, EM_SETSEL, 0, -1);
                 }
             }
-            Some(Focus::Solve) => unsafe {
-                let _ = SetFocus(Some(handles.solve));
-            },
             None => {}
         }
         match announce {
@@ -3267,6 +3364,11 @@ impl App {
             ));
         }
         entries.push((handles.general, layout.general, !thinking && general));
+        entries.push((
+            handles.graph,
+            layout.plot,
+            !thinking && !layout.plot.is_empty(),
+        ));
         for (index, hwnd) in handles.steps.into_iter().enumerate() {
             let rect = step_rects.get(index).copied();
             entries.push((hwnd, rect.unwrap_or_default(), thinking && rect.is_some()));
@@ -3321,6 +3423,7 @@ impl App {
                 invalidate(hwnd);
             }
         }
+        self.pace_graph();
     }
 
     fn relayout(&self, ensure_focus: bool) {
@@ -3462,6 +3565,7 @@ impl App {
             Control::Value(index) => Some(layout.tiles[index]),
             Control::General => Some(layout.general),
             Control::Label(label) => Some(label.rect(&layout)),
+            Control::Graph => Some(layout.plot),
             Control::Step(index) => self
                 .view
                 .try_borrow()
@@ -3869,10 +3973,12 @@ impl App {
                 },
                 palette.solution_fill,
             ),
-            Some(Control::Label(label)) => {
-                (label.color(&palette, false), label.background(&palette))
-            }
+            Some(Control::Label(label)) => (
+                label.color(&palette, false),
+                self.label_background(label, &palette),
+            ),
             Some(Control::Step(_)) => (palette.ink, palette.surface),
+            Some(Control::Graph) => (palette.graph_label, palette.graph_fill),
             _ => (palette.ink, palette.canvas),
         };
         unsafe {
@@ -3881,6 +3987,129 @@ impl App {
             SetBkMode(hdc, OPAQUE);
         }
         LRESULT(self.brush(back).0 as isize)
+    }
+
+    fn label_background(&self, label: Label, palette: &Palette) -> Color {
+        if label == Label::Helper && !self.layout().graph.is_empty() {
+            palette.graph_fill
+        } else {
+            label.background(palette)
+        }
+    }
+
+    fn graph_shown(&self) -> bool {
+        let main = self.handles.get().main;
+        !main.is_invalid()
+            && !unsafe { IsIconic(main) }.as_bool()
+            && !self.thinking()
+            && !self.layout().plot.is_empty()
+    }
+
+    fn update_graph(&self, sketch: &Sketch) {
+        let now = self.now();
+        let animate = self.animations.get() && self.graph_shown();
+        let changed = match self.motion.try_borrow_mut() {
+            Ok(mut motion) => {
+                let changed = motion.sketch() != sketch;
+                motion.update(sketch, now, animate);
+                if !animate {
+                    motion.settle();
+                }
+                changed
+            }
+            Err(_) => return,
+        };
+        self.pace_graph();
+        if changed {
+            invalidate(self.handles.get().graph);
+        }
+    }
+
+    fn pace_graph(&self) {
+        let busy = self
+            .motion
+            .try_borrow()
+            .map(|motion| motion.busy(self.now(), self.palette.get().high_contrast))
+            .unwrap_or(false);
+        if busy && self.graph_shown() {
+            self.start_graph_timer();
+        } else {
+            self.stop_graph_timer();
+        }
+    }
+
+    fn start_graph_timer(&self) {
+        let main = self.handles.get().main;
+        if self.graph_timer.get() || main.is_invalid() {
+            return;
+        }
+        let started = unsafe { SetTimer(Some(main), TIMER_GRAPH, GRAPH_FRAME_MS, None) } != 0;
+        if started {
+            self.graph_timer.set(true);
+        } else if let Ok(mut motion) = self.motion.try_borrow_mut() {
+            motion.settle();
+        }
+    }
+
+    fn stop_graph_timer(&self) {
+        if !self.graph_timer.replace(false) {
+            return;
+        }
+        let main = self.handles.get().main;
+        if !main.is_invalid() {
+            unsafe {
+                let _ = KillTimer(Some(main), TIMER_GRAPH);
+            }
+        }
+    }
+
+    fn on_graph_frame(&self) {
+        invalidate(self.handles.get().graph);
+        self.pace_graph();
+    }
+
+    fn refresh_animations(&self) {
+        let enabled = self.motion_setting.get().unwrap_or_else(system_animations);
+        let was_enabled = self.animations.replace(enabled);
+        if enabled || !was_enabled {
+            return;
+        }
+        if let Ok(mut motion) = self.motion.try_borrow_mut() {
+            motion.settle();
+        }
+        self.stop_graph_timer();
+        invalidate(self.handles.get().graph);
+    }
+
+    fn draw_graph(&self, item: &DRAWITEMSTRUCT) {
+        let area = item.rcItem;
+        let (width, height) = (area.right - area.left, area.bottom - area.top);
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        let palette = self.palette.get();
+        let unit = f64::from(self.scale());
+        let now = self.now();
+        let scene = self
+            .motion
+            .try_borrow()
+            .map(|motion| {
+                motion.scene(
+                    now,
+                    f64::from(width),
+                    f64::from(height),
+                    unit,
+                    palette.high_contrast,
+                )
+            })
+            .unwrap_or_default();
+        let plot = Rect::new(area.left, area.top, width, height);
+        self.paint_with(item.hDC, area, &|painter| {
+            painter.clear(palette.graph_fill);
+            plot::draw(painter, &scene, plot, unit, &palette);
+        });
+        self.graph_frames
+            .set(self.graph_frames.get().wrapping_add(1));
     }
 
     fn with_measure<R>(&self, dpi: u32, work: &dyn Fn(&dyn Measure) -> R) -> R {
@@ -3990,6 +4219,10 @@ impl App {
         let Ok(id) = u16::try_from(item.CtlID) else {
             return;
         };
+        if item.CtlType == ODT_STATIC && id == ID_GRAPH {
+            self.draw_graph(item);
+            return;
+        }
         let text = window_text(item.hwndItem);
         let scale = self.scale();
         let palette = self.palette.get();
@@ -4048,7 +4281,7 @@ impl App {
                 return;
             };
             let (align, valign) = label.align();
-            let background = label.background(&palette);
+            let background = self.label_background(label, &palette);
             let mut color = label.color(&palette, helper_error);
             if stale && label == Label::Title {
                 color = palette.stale(color, background);
@@ -4056,10 +4289,15 @@ impl App {
             if reading && label == Label::Helper {
                 color = palette.ink;
             }
+            let shown = if label == Label::Helper {
+                crate::text::keep_groups(&text)
+            } else {
+                text
+            };
             self.paint_with(item.hDC, item.rcItem, &|painter| {
                 painter.clear(background);
                 painter.text(
-                    &text,
+                    &shown,
                     label.font(),
                     color,
                     Rect::new(0, 0, width, height),
@@ -4637,7 +4875,7 @@ fn draw_canvas(painter: &Painter, state: &CanvasState) {
             &model::row_number(row),
             Font::Small,
             if state.complete[row] {
-                palette.accent
+                palette.graph_rows[row]
             } else {
                 palette.muted
             },
@@ -4697,6 +4935,13 @@ fn draw_canvas(painter: &Painter, state: &CanvasState) {
                 VAlign::Top,
             );
         }
+    }
+    if !layout.graph.is_empty() {
+        painter.rounded_box(
+            item_frame(layout.graph, theme::GRAPH_RADIUS * scale),
+            palette.graph_fill,
+            Some(palette.graph_stroke),
+        );
     }
     painter.card(
         layout.solution,
@@ -4817,6 +5062,8 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
     let author = button == Button::Author;
     let segment = button.segment();
     let on_card = matches!(button, Button::Copy | Button::Think);
+    let cta = button == Button::Think;
+    let ghost = button == Button::Copy;
     let parent = if author {
         palette.canvas
     } else if on_card {
@@ -4827,7 +5074,7 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
         palette.surface
     };
     painter.clear(parent);
-    let accent = button.primary() || look.selected;
+    let accent = look.selected;
     let face = if author {
         palette.link_face
     } else if segment {
@@ -4836,7 +5083,11 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
         palette.button_face
     };
     let fill = if look.disabled {
-        palette.disabled_fill
+        if ghost {
+            palette.solution_fill
+        } else {
+            palette.disabled_fill
+        }
     } else if accent {
         if look.hover {
             palette.accent_hover
@@ -4844,22 +5095,45 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
             palette.accent_fill
         }
     } else if look.hover {
-        palette.hover_fill
+        if ghost {
+            palette.ghost_hover
+        } else {
+            palette.hover_fill
+        }
+    } else if cta {
+        palette.cta_fill
+    } else if ghost {
+        palette.solution_fill
     } else {
         face
     };
     let foreground = if look.disabled {
-        palette.disabled_text
+        if ghost {
+            palette.ghost_disabled
+        } else {
+            palette.disabled_text
+        }
     } else if accent {
         palette.accent_text
     } else if look.hover {
-        palette.hover_text
+        if ghost {
+            palette.ghost_hover_text
+        } else {
+            palette.hover_text
+        }
     } else if author {
         palette.link
     } else if segment {
         palette.ink
+    } else if ghost {
+        palette.ghost_text
     } else {
         palette.button_text
+    };
+    let icon_color = if cta && !look.disabled && !(look.hover && palette.high_contrast) {
+        palette.cta_icon
+    } else {
+        foreground
     };
     let secondary = if look.disabled || accent || (look.hover && palette.high_contrast) {
         foreground
@@ -4868,8 +5142,16 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
     } else {
         foreground
     };
-    let stroke = if look.disabled && palette.disabled_stroke.is_some() {
+    let stroke = if ghost {
+        Some(if look.disabled {
+            palette.ghost_disabled
+        } else {
+            palette.ghost_stroke
+        })
+    } else if look.disabled && palette.disabled_stroke.is_some() {
         palette.disabled_stroke
+    } else if cta && !look.disabled {
+        palette.high_contrast.then_some(palette.button_stroke)
     } else if accent || author || segment {
         None
     } else if button.quiet() {
@@ -4947,7 +5229,7 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
                 ((look.height - icon_size) / 2) as f32,
                 icon_size as f32,
                 icon_size as f32,
-                foreground,
+                icon_color,
             );
         }
         painter.text(
@@ -4965,6 +5247,8 @@ fn draw_button(painter: &Painter, look: &ButtonLook) {
         let inset = 1.0 + if inner { d(look.scale, 2) as f32 } else { 0.0 };
         let ring = if filled {
             palette.primary_focus
+        } else if ghost {
+            palette.ghost_stroke
         } else if author || segment {
             palette.link_focus
         } else {

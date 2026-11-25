@@ -9,7 +9,7 @@ use sistemas_lineares::Button;
 fn wm_print_reproduz_a_tela() {
     let h = janela();
     clicar(&h, Button::Example);
-    clicar(&h, Button::Solve);
+    assert!(esperar_grafico(&h), "o gráfico entra em repouso");
     let tela = capturar(h.main);
     let impressa = imprimir(h.main);
     let mut diferentes = 0usize;
