@@ -61,6 +61,13 @@ pub const DISABLED_TEXT: Color = Color::rgb(135, 130, 143);
 pub const CARD_HIGHLIGHT: Color = Color::argb(18, 255, 255, 255);
 pub const FIELD_HOVER: Color = Color::rgb(84, 78, 90);
 pub const FOCUS_GLOW: Color = Color::argb(70, 206, 169, 243);
+pub const MINT: Color = Color::rgb(125, 211, 192);
+pub const PEACH: Color = Color::rgb(247, 178, 140);
+pub const GRAPH_TEXTURE: Color = Color::rgb(50, 46, 55);
+pub const GRAPH_GRID: Color = Color::rgb(36, 33, 39);
+pub const GRAPH_AXIS: Color = Color::rgb(99, 92, 107);
+pub const GRAPH_PANE: Color = Color::rgb(26, 24, 29);
+pub const GRAPH_EDGE: Color = Color::rgb(64, 59, 69);
 
 pub const STALE_PERCENT: u8 = 70;
 
@@ -69,6 +76,7 @@ pub const CARD_HIGHLIGHT_RADIUS: f32 = 13.0;
 pub const BUTTON_RADIUS: f32 = 10.0;
 pub const FOCUS_RADIUS: f32 = 7.0;
 pub const FIELD_RADIUS: f32 = 9.0;
+pub const GRAPH_RADIUS: f32 = 12.0;
 pub const ICON_STROKE: f32 = 1.65;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,6 +144,27 @@ pub struct Palette {
     pub keycap_text: Color,
     pub footer_link: Color,
     pub footer_link_hover: Color,
+    pub cta_fill: Color,
+    pub cta_icon: Color,
+    pub ghost_stroke: Color,
+    pub ghost_text: Color,
+    pub ghost_hover: Color,
+    pub ghost_hover_text: Color,
+    pub ghost_disabled: Color,
+    pub graph_fill: Color,
+    pub graph_stroke: Color,
+    pub graph_texture: Color,
+    pub graph_grid: Color,
+    pub graph_axis: Color,
+    pub graph_label: Color,
+    pub graph_pane: Color,
+    pub graph_edge: Color,
+    pub graph_rows: [Color; 3],
+    pub graph_meet: Color,
+    pub graph_guide: Color,
+    pub graph_set: Color,
+    pub graph_halo: Color,
+    pub graph_point: Color,
 }
 
 impl Palette {
@@ -192,6 +221,27 @@ impl Palette {
             keycap_text: INK,
             footer_link: INK,
             footer_link_hover: ACCENT,
+            cta_fill: CANVAS,
+            cta_icon: ACCENT,
+            ghost_stroke: CANVAS,
+            ghost_text: CANVAS,
+            ghost_hover: TILE_FILL,
+            ghost_hover_text: CANVAS,
+            ghost_disabled: CANVAS.mix(ACCENT, 40),
+            graph_fill: CANVAS,
+            graph_stroke: BORDER,
+            graph_texture: GRAPH_TEXTURE,
+            graph_grid: GRAPH_GRID,
+            graph_axis: GRAPH_AXIS,
+            graph_label: MUTED,
+            graph_pane: GRAPH_PANE,
+            graph_edge: GRAPH_EDGE,
+            graph_rows: [ACCENT, MINT, PEACH],
+            graph_meet: INK,
+            graph_guide: MUTED,
+            graph_set: INK,
+            graph_halo: ACCENT,
+            graph_point: INK,
         }
     }
 
@@ -248,6 +298,27 @@ impl Palette {
             keycap_text: system.window_text,
             footer_link: system.hot_light,
             footer_link_hover: system.hot_light,
+            cta_fill: system.button_face,
+            cta_icon: system.button_text,
+            ghost_stroke: system.window_text,
+            ghost_text: system.window_text,
+            ghost_hover: system.highlight,
+            ghost_hover_text: system.highlight_text,
+            ghost_disabled: system.gray_text,
+            graph_fill: system.window,
+            graph_stroke: system.window_text,
+            graph_texture: system.gray_text,
+            graph_grid: system.gray_text,
+            graph_axis: system.window_text,
+            graph_label: system.window_text,
+            graph_pane: system.window,
+            graph_edge: system.window_text,
+            graph_rows: [system.highlight, system.hot_light, system.window_text],
+            graph_meet: system.window_text,
+            graph_guide: system.window_text,
+            graph_set: system.window_text,
+            graph_halo: system.highlight,
+            graph_point: system.window_text,
         }
     }
 }
@@ -446,6 +517,29 @@ mod tests {
             palette.keycap_text,
             palette.footer_link,
             palette.footer_link_hover,
+            palette.cta_fill,
+            palette.cta_icon,
+            palette.ghost_stroke,
+            palette.ghost_text,
+            palette.ghost_hover,
+            palette.ghost_hover_text,
+            palette.ghost_disabled,
+            palette.graph_fill,
+            palette.graph_stroke,
+            palette.graph_texture,
+            palette.graph_grid,
+            palette.graph_axis,
+            palette.graph_label,
+            palette.graph_pane,
+            palette.graph_edge,
+            palette.graph_rows[0],
+            palette.graph_rows[1],
+            palette.graph_rows[2],
+            palette.graph_meet,
+            palette.graph_guide,
+            palette.graph_set,
+            palette.graph_halo,
+            palette.graph_point,
         ];
         for color in used {
             assert!(allowed.contains(&color), "{color:?}");

@@ -1,3 +1,4 @@
+pub mod graph;
 pub mod icons;
 pub mod layout;
 pub mod model;

@@ -1,3 +1,4 @@
+use crate::graph::{self, Plane, Row, Sketch, Verdict};
 use sistemas_lineares_core::steps::abbreviate;
 use sistemas_lineares_core::{
     Entry, Method, ParseError, Rational, SolutionKind, VARIABLE_NAMES, Walkthrough, format,
@@ -23,7 +24,6 @@ pub const ENTRY_DESCRIPTION: &str = "Escolha o tamanho e preencha cada equação
 pub const TWO_LABEL: &str = "2 × 2";
 pub const THREE_LABEL: &str = "3 × 3";
 pub const GRID_LABEL: &str = "COEFICIENTES E TERMOS INDEPENDENTES";
-pub const SOLVE_LABEL: &str = "Resolver sistema";
 pub const EXAMPLE_LABEL: &str = "Usar exemplo";
 pub const CLEAR_LABEL: &str = "Limpar";
 pub const RESULT_LABEL: &str = "RESULTADO";
@@ -37,7 +37,7 @@ pub const INVALID_DESCRIPTION: &str =
     "Um dos campos não é um número válido.\nA dica abaixo dos campos mostra o que corrigir.";
 pub const LARGE_TITLE: &str = "Números grandes";
 pub const LARGE_DESCRIPTION: &str =
-    "Com números tão grandes, a conta é feita quando\nvocê pressiona Enter ou Resolver sistema.";
+    "Com números tão grandes, a conta é feita quando\nvocê pressiona Enter em um dos campos.";
 pub const ONLY_THIS_FIELD: &str = "Falta só este campo.";
 pub const FOOTER_METHODS_LABEL: &str = "Passo a passo por";
 pub const KEYS: [(&str, &str); 2] = [
@@ -52,8 +52,6 @@ pub const TIP_EXAMPLE: &str = "Substitui os campos por um sistema de exemplo.";
 pub const TIP_DISABLED: &str = "Disponível quando todos os campos estiverem preenchidos.";
 pub const FOOTER: &str = "Gauss-Jordan · Cramer · Escalonamento  /  aritmética racional exata";
 pub const THINK_FOOTER: &str = "Operações de linha e determinantes  /  aritmética racional exata";
-pub const DEFAULT_HELPER: &str =
-    "Aceita 2 · -1,5 · 3/4 · 2^3 · 10² (AltGr+2). Use 0 se a variável não aparecer.";
 pub const EXAMPLE_HELPER: &str =
     "Exemplo resolvido. Mude qualquer valor e a resposta se atualiza na hora.";
 pub const AUTHOR_HELPER: &str = "Abra lucas-lima.xyz no seu navegador para visitar o autor.";
@@ -83,7 +81,7 @@ pub const DESCRIPTION_NONE: &str = "As equações são incompatíveis.";
 pub const GENERAL_NONE: &str =
     "Não existe um conjunto de valores que satisfaça todas as equações ao mesmo tempo.";
 pub const SIZE_LABEL: &str = "Tamanho do sistema";
-pub const FIELD_DESCRIPTION: &str = "Aceita 2 · -1,5 · 3/4 · 2^3 · 10². Enter vai ao próximo campo vazio; as setas para cima e para baixo mudam de equação.";
+pub const FIELD_DESCRIPTION: &str = "Aceita 2 · -1,5 · 3/4 · 2^3 · 10². Use 0 se a variável não aparecer. Enter vai ao próximo campo vazio; as setas para cima e para baixo mudam de equação.";
 pub const SPOKEN_LIMIT: usize = 24;
 
 const EXAMPLE_TWO: [[&str; 3]; 2] = [["2", "1", "5"], ["1", "-1", "1"]];
@@ -236,7 +234,6 @@ pub enum Focus {
         column: usize,
         select_all: bool,
     },
-    Solve,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -270,6 +267,8 @@ pub struct Model {
     large: bool,
     blank: bool,
     preview: Vec<String>,
+    rank: usize,
+    exact: Vec<Rational>,
 }
 
 impl Default for Model {
@@ -302,6 +301,8 @@ impl Model {
             large: false,
             blank: true,
             preview: Vec::new(),
+            rank: 0,
+            exact: Vec::new(),
         };
         model.analyze(false);
         model
@@ -411,6 +412,19 @@ impl Model {
         self.thinking = None;
         self.steps_copied = false;
         self.steps_copy_failed = false;
+        self.rank = solution.pivot_columns.len();
+        self.exact = match solution.kind {
+            SolutionKind::Unique => (0..dimension)
+                .filter_map(|row| {
+                    solution
+                        .reduced
+                        .get(row)
+                        .and_then(|values| values.get(dimension))
+                        .cloned()
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
         self.outcome = match solution.kind {
             SolutionKind::Unique => {
                 self.note = NOTE_UNIQUE.to_string();
@@ -444,6 +458,8 @@ impl Model {
 
     fn clear_outcome(&mut self) {
         self.outcome = Outcome::Empty;
+        self.rank = 0;
+        self.exact.clear();
         self.stale = false;
         self.last_result = None;
         self.note = NOTE_DEFAULT.to_string();
@@ -578,13 +594,102 @@ impl Model {
             );
         }
         match self.notice {
-            Some(Notice::Example) => EXAMPLE_HELPER.to_string(),
             Some(Notice::Author) => AUTHOR_HELPER.to_string(),
             Some(Notice::MethodNeedsSystem(method)) => method_needs_system(method).to_string(),
             Some(Notice::OnlyThisField) => ONLY_THIS_FIELD.to_string(),
-            None => self
+            Some(Notice::Example) | None => self
                 .focused_reading()
-                .unwrap_or_else(|| DEFAULT_HELPER.to_string()),
+                .unwrap_or_else(|| graph::caption(&self.sketch())),
+        }
+    }
+
+    fn shows_notice(&self) -> bool {
+        matches!(
+            self.notice,
+            Some(Notice::Author | Notice::MethodNeedsSystem(_) | Notice::OnlyThisField)
+        )
+    }
+
+    pub fn helper_is_caption(&self) -> bool {
+        self.shown_error().is_none() && !self.shows_notice() && self.focused_reading().is_none()
+    }
+
+    pub fn sketch(&self) -> Sketch {
+        let dimension = self.dimension;
+        let rows = (0..dimension).map(|row| self.sketch_row(row)).collect();
+        let verdict = match &self.outcome {
+            _ if self.stale || self.outcome == Outcome::Empty => {
+                if self.missing == 0 && self.invalid == 0 {
+                    Verdict::Waiting
+                } else {
+                    Verdict::Pending
+                }
+            }
+            Outcome::Unique(values) => {
+                let mut point = [0.0; 3];
+                for (slot, value) in point.iter_mut().zip(&self.exact) {
+                    *slot = value.to_f64();
+                }
+                let fits = point
+                    .iter()
+                    .all(|value| value.is_finite() && value.abs() <= graph::LIMIT);
+                Verdict::Point {
+                    at: fits.then_some(point),
+                    coordinates: values.iter().map(|value| abbreviate(value)).collect(),
+                }
+            }
+            Outcome::Infinite(_) => match (dimension, self.rank) {
+                (_, 0) => Verdict::Everything,
+                (2, _) | (3, 2) => Verdict::Line,
+                _ => Verdict::Plane,
+            },
+            Outcome::NoSolution(_) => Verdict::Nothing { rank: self.rank },
+            Outcome::Empty => Verdict::Pending,
+        };
+        Sketch {
+            dimension,
+            rows,
+            verdict,
+        }
+    }
+
+    fn sketch_row(&self, row: usize) -> Row {
+        let dimension = self.dimension;
+        let mut values = Vec::with_capacity(dimension + 1);
+        for column in 0..=dimension {
+            match self.cell(row, input_column(dimension, column)) {
+                Some(Cell::Value(value)) => values.push(value),
+                _ => {
+                    let blank = (0..=dimension).all(|column| {
+                        self.grid()[row][input_column(dimension, column)]
+                            .trim()
+                            .is_empty()
+                    });
+                    return if blank { Row::Blank } else { Row::Partial };
+                }
+            }
+        }
+        let (coefficients, constant) = values.split_at(dimension);
+        let constant = constant[0];
+        let largest = coefficients
+            .iter()
+            .copied()
+            .filter(|value| !value.is_zero())
+            .max_by(|first, second| first.cmp_magnitude(second));
+        let Some(largest) = largest.map(Rational::abs) else {
+            return if constant.is_zero() {
+                Row::Trivial
+            } else {
+                Row::Impossible(abbreviate(&constant.to_string()))
+            };
+        };
+        let mut normal = [0.0; 3];
+        for (slot, value) in normal.iter_mut().zip(coefficients) {
+            *slot = (*value / &largest).to_f64();
+        }
+        match Plane::new(normal, (constant / &largest).to_f64()) {
+            Some(plane) => Row::Drawn(plane),
+            None => Row::Huge,
         }
     }
 
@@ -600,7 +705,7 @@ impl Model {
     }
 
     pub fn helper_is_reading(&self) -> bool {
-        self.shown_error().is_none() && self.notice.is_none() && self.focused_reading().is_some()
+        self.shown_error().is_none() && !self.shows_notice() && self.focused_reading().is_some()
     }
 
     pub fn notice(&self) -> Option<Notice> {

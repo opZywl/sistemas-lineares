@@ -70,7 +70,6 @@ fn botoes_dentro_dos_cards() {
         for (name, rect) in [
             ("2x2", layout.two),
             ("3x3", layout.three),
-            ("resolver", layout.solve),
             ("exemplo", layout.example),
             ("limpar", layout.clear),
         ] {
@@ -176,7 +175,6 @@ fn irmaos_visiveis_nao_se_sobrepoem() {
             ("dimensao".into(), layout.dimension_text),
             ("rotulo".into(), layout.grid_label),
             ("helper".into(), layout.helper),
-            ("resolver".into(), layout.solve),
             ("exemplo".into(), layout.example),
             ("limpar".into(), layout.clear),
         ];
@@ -267,7 +265,7 @@ fn referencia_a_96_dpi() {
     assert_eq!(layout.fields[0][0], Rect::new(87, 432, 163, 46));
     assert_eq!(layout.editors[0][0], Rect::new(95, 444, 127, 21));
     assert_eq!(layout.fields[0][3], Rect::new(465, 432, 163, 46));
-    assert_eq!(layout.solve, Rect::new(58, 667, 192, 42));
+    assert_eq!(layout.example, Rect::new(58, 667, 155, 42));
     assert_eq!(layout.clear, Rect::new(518, 667, 112, 42));
     assert_eq!(layout.think, Rect::new(702, 667, 186, 42));
     assert_eq!(layout.copy, Rect::new(898, 667, 187, 42));
@@ -470,4 +468,46 @@ fn caixa_da_previa_cabe_no_card_sem_tocar_o_titulo() {
         layout::preview_plan(Rect::new(0, 0, 100, 100), 1.0, 0, 21),
         layout::PreviewPlan::default()
     );
+}
+
+#[test]
+fn painel_do_grafico_entre_as_equacoes_e_os_botoes() {
+    for (scale, size, dimension, layout) in each() {
+        let context = format!("escala {scale} tamanho {size:?} {dimension}x{dimension}");
+        let rows_bottom = layout.fields[dimension - 1][3].bottom();
+        if layout.graph.is_empty() {
+            assert!(layout.plot.is_empty(), "{context}");
+            assert!(layout.helper.y >= rows_bottom, "{context}");
+            assert!(layout.helper.bottom() <= layout.example.y, "{context}");
+            continue;
+        }
+        assert!(layout.entry.contains(layout.graph), "{context}");
+        assert!(layout.graph.y > rows_bottom, "{context}");
+        assert!(layout.graph.bottom() < layout.example.y, "{context}");
+        assert!(layout.graph.bottom() < layout.clear.y, "{context}");
+        assert!(layout.graph.contains(layout.plot), "{context}");
+        assert!(layout.graph.contains(layout.helper), "{context}");
+        assert!(!layout.plot.intersects(layout.helper), "{context}");
+        assert!(layout.plot.h >= d(scale, 40), "{context}");
+        assert!(layout.helper.w >= d(scale, 250), "{context}");
+        assert!(layout.plot.x - layout.graph.x >= d(scale, 4), "{context}");
+        assert!(layout.helper.h >= d(scale, 54), "{context}");
+    }
+    let metrics = Metrics {
+        input_height: 21,
+        value_height: 41,
+    };
+    let two = layout::compute(1.0, 1143, 793, 2, metrics);
+    assert_eq!(two.graph, Rect::new(58, 538, 572, 119));
+    assert_eq!(two.plot, Rect::new(62, 542, 233, 111));
+    assert_eq!(two.helper, Rect::new(311, 542, 303, 111));
+    let three = layout::compute(1.0, 1143, 793, 3, metrics);
+    assert_eq!(three.graph, Rect::new(58, 588, 572, 69));
+    assert_eq!(three.plot, Rect::new(62, 592, 128, 61));
+    assert_eq!(three.helper, Rect::new(206, 592, 408, 61));
+    let base = layout::compute(1.0, 1160, 810, 3, metrics);
+    assert_eq!(base.plot, Rect::new(62, 592, 163, 78));
+    let small = layout::compute(1.0, 1040, 760, 3, metrics);
+    assert!(small.graph.is_empty());
+    assert_eq!(small.helper.y, small.fields[2][3].bottom() + 4);
 }

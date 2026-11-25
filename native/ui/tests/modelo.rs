@@ -1,5 +1,6 @@
 use sistemas_lineares_core::Method;
 use sistemas_lineares_core::Rational;
+use sistemas_lineares_ui::graph::{self, Row, Verdict};
 use sistemas_lineares_ui::model::{
     self, Card, Focus, MethodRequest, Model, Notice, Outcome, Waiting,
 };
@@ -20,7 +21,8 @@ fn estado_inicial() {
     assert_eq!(model.dimension_text(), "2 equações · 2 incógnitas");
     assert_eq!(
         model.helper(),
-        "Aceita 2 · -1,5 · 3/4 · 2^3 · 10² (AltGr+2). Use 0 se a variável não aparecer."
+        graph::INTRO_TWO,
+        "a legenda do gráfico explica o que aparece ali"
     );
     assert!(!model.helper_is_error());
     assert!(model.is_empty());
@@ -112,8 +114,9 @@ fn exemplo_2x2_resolve_e_habilita_copia() {
     assert_eq!(model.fill_example(), None);
     assert_eq!(
         model.helper(),
-        "Exemplo resolvido. Mude qualquer valor e a resposta se atualiza na hora."
+        "As retas se cruzam em (2, 1): esse ponto é a solução do sistema."
     );
+    assert!(model.helper_is_caption());
     assert_eq!(model.notice(), Some(Notice::Example));
     assert_eq!(
         [
@@ -158,7 +161,10 @@ fn editar_atualiza_o_resultado_na_hora() {
     assert_eq!(model.values(), ["6/5", "1/5"]);
     assert!(model.copy_enabled());
     assert_eq!(model.card(), Card::Result { stale: false });
-    assert_eq!(model.helper(), model::DEFAULT_HELPER);
+    assert_eq!(
+        model.helper(),
+        "As retas se cruzam em (6/5, 1/5): esse ponto é a solução do sistema."
+    );
 }
 
 #[test]
@@ -271,7 +277,7 @@ fn limpar_reinicia_tudo() {
     }
     assert!(!model.copy_enabled());
     assert!(model.is_empty());
-    assert_eq!(model.helper(), model::DEFAULT_HELPER);
+    assert_eq!(model.helper(), graph::INTRO_THREE);
     assert_eq!(model.dimension(), 3);
 }
 
@@ -363,7 +369,7 @@ fn erro_revelado_nao_pisca_enquanto_corrige() {
         !model.field_has_error(0, 0),
         "começar a digitar no campo vazio apontado não acende outro erro"
     );
-    assert_eq!(model.helper(), model::DEFAULT_HELPER);
+    assert_eq!(model.helper(), graph::INTRO_TWO);
 }
 
 #[test]
@@ -383,21 +389,22 @@ fn dica_mostra_o_valor_lido_do_campo_com_potencia() {
     model.edit(0, 0, "2^");
     assert_eq!(
         model.helper(),
-        model::DEFAULT_HELPER,
+        graph::INTRO_TWO,
         "prefixo ainda não tem valor"
     );
     assert!(!model.helper_is_reading());
+    assert!(model.helper_is_caption());
     model.edit(0, 0, "3");
     assert_eq!(
         model.helper(),
-        model::DEFAULT_HELPER,
-        "sem potência, a dica volta ao normal"
+        graph::INTRO_TWO,
+        "sem potência, a dica volta à legenda"
     );
     model.edit(0, 0, "2^3");
     model.set_focus(Some((0, 1)));
     assert_eq!(
         model.helper(),
-        model::DEFAULT_HELPER,
+        graph::INTRO_TWO,
         "a dica segue o campo focado"
     );
     assert_eq!(
@@ -518,7 +525,6 @@ fn textos_coerentes_com_a_versao_html() {
         model::TWO_LABEL,
         model::THREE_LABEL,
         model::GRID_LABEL,
-        model::SOLVE_LABEL,
         model::EXAMPLE_LABEL,
         model::CLEAR_LABEL,
         model::RESULT_LABEL,
@@ -1007,7 +1013,9 @@ fn exemplos_da_dica_sao_aceitos() {
             "{texto}"
         );
     }
-    assert!(model::DEFAULT_HELPER.contains("2^3") && model::DEFAULT_HELPER.contains("10\u{B2}"));
+    assert!(
+        model::FIELD_DESCRIPTION.contains("2^3") && model::FIELD_DESCRIPTION.contains("10\u{B2}")
+    );
 }
 
 #[test]
@@ -1018,4 +1026,196 @@ fn nomes_do_tamanho_e_dos_links() {
         model::method_link_name(sistemas_lineares_core::Method::Gauss),
         "Passo a passo por escalonamento"
     );
+}
+
+fn plano(row: &Row) -> graph::Plane {
+    match row {
+        Row::Drawn(plane) => *plane,
+        other => panic!("esperava um plano desenhado, veio {other:?}"),
+    }
+}
+
+#[test]
+fn esboco_do_exemplo_2x2_tem_retas_e_ponto() {
+    let mut model = Model::new();
+    let vazio = model.sketch();
+    assert_eq!(vazio.rows, [Row::Blank, Row::Blank]);
+    assert_eq!(vazio.verdict, Verdict::Pending);
+    model.fill_example();
+    let sketch = model.sketch();
+    assert_eq!(sketch.dimension, 2);
+    let primeira = plano(&sketch.rows[0]);
+    let raiz = 5f64.sqrt();
+    assert!((primeira.normal[0] - 2.0 / raiz).abs() < 1e-15);
+    assert!((primeira.normal[1] - 1.0 / raiz).abs() < 1e-15);
+    assert!((primeira.offset - raiz).abs() < 1e-15);
+    assert_eq!(
+        sketch.verdict,
+        Verdict::Point {
+            at: Some([2.0, 1.0, 0.0]),
+            coordinates: vec!["2".to_string(), "1".to_string()],
+        }
+    );
+    model.edit(1, 0, "");
+    let editando = model.sketch();
+    assert_eq!(editando.rows[1], Row::Partial);
+    assert_eq!(editando.verdict, Verdict::Pending);
+    assert_eq!(
+        model.helper(),
+        "Preencha a equação 2 para ver onde as retas se cruzam."
+    );
+}
+
+#[test]
+fn esboco_do_exemplo_3x3_e_dos_casos_degenerados() {
+    let mut model = Model::new();
+    model.change_dimension(3);
+    model.fill_example();
+    assert_eq!(
+        model.sketch().verdict,
+        Verdict::Point {
+            at: Some([1.0, 2.0, 3.0]),
+            coordinates: vec!["1".to_string(), "2".to_string(), "3".to_string()],
+        }
+    );
+    assert_eq!(
+        model.helper(),
+        "Os três planos se cruzam em (1, 2, 3): esse ponto é a solução do sistema."
+    );
+
+    let mut model = Model::new();
+    fill(&mut model, &[&["1", "1", "2"], &["2", "2", "4"]]);
+    assert_eq!(model.sketch().verdict, Verdict::Line);
+    assert_eq!(model.helper(), graph::COINCIDENT_LINES);
+    fill(&mut model, &[&["1", "1", "2"], &["0", "0", "0"]]);
+    assert_eq!(model.sketch().rows[1], Row::Trivial);
+    assert_eq!(model.sketch().verdict, Verdict::Line);
+    fill(&mut model, &[&["1", "1", "2"], &["0", "0", "5/2"]]);
+    assert_eq!(model.sketch().rows[1], Row::Impossible("5/2".to_string()));
+    assert_eq!(model.sketch().verdict, Verdict::Nothing { rank: 1 });
+    assert_eq!(
+        model.helper(),
+        "A equação 2 diz que 0 = 5/2, o que nunca acontece: o sistema não tem solução."
+    );
+    fill(&mut model, &[&["1", "1", "2"], &["1", "1", "3"]]);
+    assert_eq!(model.helper(), graph::PARALLEL_LINES);
+    fill(&mut model, &[&["0", "0", "0"], &["0", "0", "0"]]);
+    assert_eq!(model.sketch().verdict, Verdict::Everything);
+    assert_eq!(model.helper(), graph::EVERYTHING_TWO);
+
+    let mut model = Model::new();
+    model.change_dimension(3);
+    fill(
+        &mut model,
+        &[
+            &["1", "1", "1", "1"],
+            &["1", "-1", "0", "0"],
+            &["2", "0", "1", "1"],
+        ],
+    );
+    assert_eq!(model.sketch().verdict, Verdict::Line);
+    assert_eq!(model.helper(), graph::SHARED_LINE);
+    fill(
+        &mut model,
+        &[
+            &["1", "1", "1", "1"],
+            &["2", "2", "2", "2"],
+            &["0", "0", "0", "0"],
+        ],
+    );
+    assert_eq!(model.sketch().verdict, Verdict::Plane);
+    assert_eq!(model.helper(), graph::COINCIDENT_PLANES);
+    fill(
+        &mut model,
+        &[
+            &["1", "1", "1", "1"],
+            &["0", "0", "0", "0"],
+            &["0", "0", "0", "0"],
+        ],
+    );
+    assert_eq!(
+        model.helper(),
+        "As outras equações valem para qualquer ponto (0 = 0), então todo o plano da equação 1 é solução."
+    );
+    fill(
+        &mut model,
+        &[
+            &["1", "1", "1", "1"],
+            &["1", "1", "1", "2"],
+            &["1", "1", "1", "3"],
+        ],
+    );
+    assert_eq!(model.sketch().verdict, Verdict::Nothing { rank: 1 });
+    assert_eq!(model.helper(), graph::PARALLEL_PLANES);
+    fill(
+        &mut model,
+        &[
+            &["1", "0", "0", "0"],
+            &["0", "1", "0", "0"],
+            &["1", "1", "0", "1"],
+        ],
+    );
+    assert_eq!(model.sketch().verdict, Verdict::Nothing { rank: 2 });
+    assert_eq!(model.helper(), graph::NO_COMMON_POINT);
+}
+
+#[test]
+fn esboco_normaliza_numeros_enormes_e_espera_o_enter() {
+    let mut model = Model::new();
+    fill(
+        &mut model,
+        &[&["2e1000", "1e1000", "5e1000"], &["1", "-1", "1"]],
+    );
+    let sketch = model.sketch();
+    let primeira = plano(&sketch.rows[0]);
+    let raiz = 5f64.sqrt();
+    assert!((primeira.normal[0] - 2.0 / raiz).abs() < 1e-15);
+    assert!((primeira.offset - raiz).abs() < 1e-15);
+    assert_eq!(model.card(), Card::Waiting(Waiting::Large));
+    assert_eq!(sketch.verdict, Verdict::Waiting);
+    assert_eq!(model.helper(), graph::WAITING);
+    model.enter(0, 0);
+    assert!(matches!(
+        model.sketch().verdict,
+        Verdict::Point { at: Some(_), .. }
+    ));
+
+    let mut model = Model::new();
+    fill(&mut model, &[&["1", "1", "1e200"], &["1", "-1", "0"]]);
+    assert_eq!(model.sketch().rows[0], Row::Huge);
+    assert_eq!(model.helper(), graph::HUGE);
+
+    let mut model = Model::new();
+    fill(&mut model, &[&["1e-400", "0", "1"], &["0", "1", "0"]]);
+    assert_eq!(model.sketch().rows[0], Row::Huge);
+    assert!(matches!(
+        model.sketch().verdict,
+        Verdict::Point { at: None, .. }
+    ));
+}
+
+#[test]
+fn legenda_cede_lugar_ao_erro_e_aos_avisos() {
+    let mut model = Model::new();
+    model.set_focus(Some((0, 0)));
+    model.edit(0, 0, "1/0");
+    model.leave(0, 0);
+    assert!(model.helper_is_error());
+    assert!(!model.helper_is_caption());
+    assert_eq!(
+        model.helper(),
+        "Equação 1, coeficiente de x: O denominador não pode ser zero."
+    );
+    model.edit(0, 0, "1");
+    assert!(model.helper_is_caption());
+    assert_eq!(
+        model.request_method(Method::Cramer),
+        MethodRequest::NeedsSystem(Some(Focus::Field {
+            row: 0,
+            column: 1,
+            select_all: true
+        }))
+    );
+    assert!(!model.helper_is_caption());
+    assert_eq!(model.helper(), model::method_needs_system(Method::Cramer));
 }

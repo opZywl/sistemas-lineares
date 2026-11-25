@@ -181,7 +181,8 @@ pub struct Layout {
     pub editors: [[Rect; 4]; 3],
     pub operators: [[Rect; 3]; 3],
     pub helper: Rect,
-    pub solve: Rect,
+    pub graph: Rect,
+    pub plot: Rect,
     pub example: Rect,
     pub clear: Rect,
     pub solution_label: Rect,
@@ -223,6 +224,10 @@ const METHOD_WIDTHS: [i32; 3] = [132, 104, 146];
 const LINK_WIDTHS: [i32; 3] = [96, 64, 108];
 pub const TRACK_INSET: i32 = 4;
 pub const TRACK_RADIUS: f32 = 13.0;
+pub const GRAPH_GAP: i32 = 10;
+pub const GRAPH_INSET: i32 = 4;
+pub const GRAPH_MIN_HEIGHT: i32 = 56;
+pub const CAPTION_GAP: i32 = 16;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Keycap {
@@ -401,9 +406,7 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         three: place(entry, 120, 103, 88, 40),
         dimension_text: place(entry, 228, 113, left - 250, 24),
         grid_label: place(entry, 26, 168, left - 52, 22),
-        helper: place(entry, 26, card_height - 113, left - 52, 42),
-        solve: place(entry, 26, card_height - 64, 192, 42),
-        example: place(entry, 228, card_height - 64, 155, 42),
+        example: place(entry, 26, card_height - 64, 155, 42),
         clear: place(entry, left - 138, card_height - 64, 112, 42),
         solution_label: place(solution, 26, 26, right - 52, 24),
         solution_title: place(solution, 26, 65, right - 52, 35),
@@ -466,6 +469,28 @@ pub fn compute(scale: f32, width: i32, height: i32, dimension: usize, metrics: M
         );
     }
     layout.note.y = layout.note.y.max(layout.tiles[2].bottom());
+    let rows_bottom = 194 + 50 * (dimension as i32 - 1) + 46;
+    let band_top = rows_bottom + GRAPH_GAP;
+    let band = card_height - 64 - GRAPH_GAP - band_top;
+    if band >= GRAPH_MIN_HEIGHT {
+        let plot_width = ((band - 2 * GRAPH_INSET) * 21 / 10).min((left - 52) * 46 / 100);
+        let graph = place(entry, 26, band_top, left - 52, band);
+        let inset = d(scale, GRAPH_INSET);
+        let plot = Rect::new(
+            graph.x + inset,
+            graph.y + inset,
+            d(scale, plot_width),
+            graph.h - 2 * inset,
+        );
+        let gap = d(scale, CAPTION_GAP);
+        let caption_x = plot.right() + gap;
+        layout.graph = graph;
+        layout.plot = plot;
+        layout.helper = Rect::new(caption_x, plot.y, graph.right() - gap - caption_x, plot.h);
+    } else {
+        let top = rows_bottom + 4;
+        layout.helper = place(entry, 26, top, left - 52, card_height - 68 - top);
+    }
     let sheet = place(root, 32, SHEET_TOP, width - 64, card_height);
     layout.sheet = sheet;
     layout.back = place(sheet, SHEET_PADDING, 24, 118, 42);

@@ -131,6 +131,66 @@ pub fn wrap_lines(text: &str, available: i32, measure: &dyn Fn(&str) -> i32) -> 
         .collect()
 }
 
+pub const KEEP_LIMIT: usize = 16;
+pub const KEEP_SPACE: char = '\u{a0}';
+
+fn group_end(characters: &[char], start: usize) -> Option<usize> {
+    if characters[start] == '(' {
+        let inside = characters[start + 1..]
+            .iter()
+            .position(|character| matches!(character, '(' | ')'));
+        if let Some(inside) = inside {
+            let close = start + 1 + inside;
+            if inside > 0 && characters[close] == ')' {
+                return Some(close + 1);
+            }
+        }
+    }
+    if characters[start].is_whitespace() {
+        return None;
+    }
+    let word_end = |from: usize| {
+        characters[from..]
+            .iter()
+            .position(|character| character.is_whitespace())
+            .map_or(characters.len(), |offset| from + offset)
+    };
+    let left = word_end(start);
+    if characters.get(left..left + 3) != Some(&[' ', '=', ' '][..]) {
+        return None;
+    }
+    let right = word_end(left + 3);
+    (right > left + 3).then_some(right)
+}
+
+pub fn keep_groups(text: &str) -> String {
+    let characters: Vec<char> = text.chars().collect();
+    let mut kept = vec![false; characters.len()];
+    let mut start = 0;
+    while start < characters.len() {
+        match group_end(&characters, start) {
+            Some(end) => {
+                if end - start <= KEEP_LIMIT {
+                    kept[start..end].fill(true);
+                }
+                start = end;
+            }
+            None => start += 1,
+        }
+    }
+    characters
+        .iter()
+        .zip(&kept)
+        .map(|(character, keep)| {
+            if *keep && *character == ' ' {
+                KEEP_SPACE
+            } else {
+                *character
+            }
+        })
+        .collect()
+}
+
 pub fn ellipsize(text: &str, available: i32, measure: &dyn Fn(&str) -> i32) -> String {
     if measure(text) <= available {
         return text.to_string();
@@ -156,6 +216,44 @@ pub fn ellipsize(text: &str, available: i32, measure: &dyn Fn(&str) -> i32) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grupos_curtos_ficam_juntos_como_no_html() {
+        let juntos = |texto: &str| texto.replace(' ', "\u{a0}");
+        assert_eq!(
+            keep_groups("As retas se cruzam em (2, 1): esse ponto"),
+            format!("As retas se cruzam em {}: esse ponto", juntos("(2, 1)"))
+        );
+        assert_eq!(
+            keep_groups("qualquer ponto (0 = 0): o plano"),
+            format!("qualquer ponto {}: o plano", juntos("(0 = 0)"))
+        );
+        assert_eq!(
+            keep_groups("A equação 2 diz que 0 = 5/2, o que nunca acontece"),
+            format!(
+                "A equação 2 diz que {} o que nunca acontece",
+                juntos("0 = 5/2,")
+            )
+        );
+        let limite = "(1234567, 12345)";
+        assert_eq!(limite.chars().count(), KEEP_LIMIT);
+        assert_eq!(keep_groups(limite), juntos(limite));
+        let longo = "(-5055/28171, -50715/28171)";
+        assert_eq!(keep_groups(longo), longo);
+        assert_eq!(
+            keep_groups("((1, 2) e (3, 4"),
+            format!("({} e (3, 4", juntos("(1, 2)"))
+        );
+        assert_eq!(keep_groups("() e x = "), "() e x = ");
+        assert_eq!(keep_groups("(x = 1"), juntos("(x = 1"));
+        assert_eq!(keep_groups("sem grupos aqui"), "sem grupos aqui");
+        assert_eq!(keep_groups(""), "");
+        let medir = |texto: &str| texto.chars().count() as i32;
+        assert_eq!(
+            wrap(&keep_groups("em (2, 1): esse ponto"), 8, &medir),
+            ["em", "(2,\u{a0}1):", "esse", "ponto"]
+        );
+    }
 
     #[test]
     fn espacamento_da_space_grotesk() {
