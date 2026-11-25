@@ -7,8 +7,8 @@ O Sistemas Lineares tem três implementações da mesma matemática, que dão as
 | --- | --- | --- | --- |
 | Núcleo | `native/core` | Rust e `num-bigint` | Frações exatas, leitura dos números (com potências), Gauss-Jordan, texto da resposta e Modo pensar |
 | Modelo da tela | `native/ui` | Rust | Estado da tela, layout, tema, gráfico do sistema, quebra de texto e layout do Modo pensar, comuns aos dois apps nativos |
-| App para Windows | `native/app` | Rust, Win32, Direct2D e DirectWrite | O `SistemasLineares.exe` publicado nas releases |
-| App para Linux | `native/linux` | Rust, eframe, egui e AccessKit | O `sistemas-lineares` publicado nas releases |
+| App para Windows | `native/app` | Rust, Win32, Direct2D e DirectWrite | O `SistemasLineares.exe`, publicado nas releases como `SistemasLineares-Windows.exe` |
+| App para Linux | `native/linux` | Rust, eframe, egui e AccessKit | O `sistemas-lineares`, publicado nas releases como `SistemasLineares-Linux` |
 | Versão HTML | `portable/` | JavaScript com BigInt, HTML e CSS | O `SistemasLineares.html`, que roda offline em qualquer sistema |
 | Legado | `legado/csharp` | C#, WinForms e .NET Framework 4 | A versão 3, que hoje serve de referência de paridade |
 

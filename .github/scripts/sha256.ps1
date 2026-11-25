@@ -1,46 +1,45 @@
 ﻿param(
-    [string]$Executavel = 'native/target/release/SistemasLineares.exe',
-    [string]$Html = 'SistemasLineares.html',
-    [string]$Destino = 'native/target/dist'
+    [string]$Destino = 'native/target/dist',
+    [string]$Executavel = '',
+    [string]$Html = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $utf8 = New-Object System.Text.UTF8Encoding $false
-$cultura = [System.Globalization.CultureInfo]::GetCultureInfo('pt-BR')
 
 function Get-CaminhoCompleto([string]$Caminho) {
     $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Caminho)
 }
 
-function Format-Tamanho([long]$Bytes) {
-    if ($Bytes -ge 1MB) {
-        return [string]::Format($cultura, '{0:N1} MB', $Bytes / 1MB)
-    }
-    return [string]::Format($cultura, '{0:N1} KB', $Bytes / 1KB)
-}
-
-$origens = @($Executavel, $Html)
-$faltando = @($origens | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
-if ($faltando.Count -gt 0) {
-    throw "Arquivo não encontrado: $($faltando -join ', '). Compile o exe e gere o HTML antes de calcular o SHA-256."
+$sistemas = [ordered]@{
+    'SistemasLineares-Windows.exe' = 'Windows 10 e 11 (64 bits)'
+    'SistemasLineares-Linux' = 'Linux (64 bits)'
+    'SistemasLineares-Navegador.html' = 'Qualquer sistema, no navegador'
 }
 
 $pasta = Get-CaminhoCompleto $Destino
 New-Item -ItemType Directory -Force -Path $pasta | Out-Null
 
-$arquivos = foreach ($origem in $origens) {
-    $de = Get-CaminhoCompleto $origem
-    $para = Join-Path $pasta (Split-Path -Leaf $de)
-    if ($de -ne $para) {
-        Copy-Item -LiteralPath $de -Destination $para -Force
+foreach ($copia in @(@($Executavel, 'SistemasLineares-Windows.exe'), @($Html, 'SistemasLineares-Navegador.html'))) {
+    $origem, $nome = $copia
+    if (-not $origem) {
+        continue
     }
-    Get-Item -LiteralPath $para
+    if (-not (Test-Path -LiteralPath $origem -PathType Leaf)) {
+        throw "Arquivo não encontrado: $origem. Compile o exe e gere o HTML antes de calcular o SHA-256."
+    }
+    Copy-Item -LiteralPath (Get-CaminhoCompleto $origem) -Destination (Join-Path $pasta $nome) -Force
+}
+
+$arquivos = @($sistemas.Keys | ForEach-Object { Join-Path $pasta $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | ForEach-Object { Get-Item -LiteralPath $_ })
+if ($arquivos.Count -eq 0) {
+    throw "Nenhum arquivo da release em ${pasta}: esperado $($sistemas.Keys -join ', ')."
 }
 
 $linhas = foreach ($arquivo in $arquivos) {
     [pscustomobject]@{
+        Sistema = $sistemas[$arquivo.Name]
         Nome = $arquivo.Name
-        Tamanho = Format-Tamanho $arquivo.Length
         Hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $arquivo.FullName).Hash.ToLowerInvariant()
     }
 }
@@ -56,16 +55,10 @@ foreach ($linha in $linhas) {
 }
 
 $markdown = @(
-    '### SHA-256'
-    ''
-    '| Arquivo | Tamanho | SHA-256 |'
+    '| Sistema | Arquivo | SHA-256 |'
     '| --- | --- | --- |'
 )
-$markdown += $linhas | ForEach-Object { '| `{0}` | {1} | `{2}` |' -f $_.Nome, $_.Tamanho, $_.Hash }
-$markdown += @(
-    ''
-    'Para conferir um download no PowerShell: `Get-FileHash .\SistemasLineares.exe -Algorithm SHA256`'
-)
+$markdown += $linhas | ForEach-Object { '| {0} | `{1}` | `{2}` |' -f $_.Sistema, $_.Nome, $_.Hash }
 $texto = ($markdown -join "`n") + "`n"
 [System.IO.File]::WriteAllText((Join-Path $pasta 'SHA256SUMS.md'), $texto, $utf8)
 

@@ -59,4 +59,4 @@ Em native/core/src/lib.rs, `Rational::parse` interpreta os números, e native/co
 
 A versão anterior, em C#, fica em legado/csharp como implementação de referência: as duas dão as mesmas respostas, byte a byte.
 
-Antes da apresentação, abra a versão escolhida no computador que será utilizado e execute os exemplos acima. Leve o SistemasLineares.exe (Windows) ou o sistemas-lineares (Linux), baixados da página de Releases, e o SistemasLineares.html offline. Os apps são arquivos únicos e não precisam de instalação. Consulte o README para os requisitos de execução e formatos de entrada.
+Antes da apresentação, abra a versão escolhida no computador que será utilizado e execute os exemplos acima. Leve o SistemasLineares-Windows.exe (Windows) ou o SistemasLineares-Linux (Linux), baixados da página de Releases, e o SistemasLineares-Navegador.html offline. Os apps são arquivos únicos e não precisam de instalação. Consulte o README para os requisitos de execução e formatos de entrada.

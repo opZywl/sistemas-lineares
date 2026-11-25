@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Publicar a release
+  windows:
+    name: Testar e compilar no Windows
     runs-on: windows-latest
     env:
       TAG: ${{ github.ref_name }}
@@ -79,31 +79,22 @@ jobs:
         working-directory: native
         run: cargo build --release --locked
 
-      - name: Calcular o SHA-256
+      - name: Separar os arquivos do Windows e do navegador
         shell: pwsh
-        run: ./.github/scripts/sha256.ps1
+        run: ./.github/scripts/sha256.ps1 -Destino dist -Executavel native/target/release/SistemasLineares.exe -Html SistemasLineares.html
 
-      - name: Montar as notas da release
-        shell: pwsh
-        run: ./.github/scripts/notas-da-release.ps1 -Versao $env:TAG -Sha256 native/target/dist/SHA256SUMS.md -Saida native/target/dist/NOTAS.md
-
-      - name: Publicar a release
-        uses: softprops/action-gh-release@v3
+      - name: Enviar os arquivos
+        uses: actions/upload-artifact@v7
         with:
-          name: Sistemas Lineares ${{ github.ref_name }}
-          body_path: native/target/dist/NOTAS.md
-          draft: false
-          prerelease: false
-          make_latest: true
-          fail_on_unmatched_files: true
-          files: |
-            native/target/dist/SistemasLineares.exe
-            native/target/dist/SistemasLineares.html
-            native/target/dist/SHA256SUMS.txt
+          name: release-windows
+          path: |
+            dist/SistemasLineares-Windows.exe
+            dist/SistemasLineares-Navegador.html
+          if-no-files-found: error
+          retention-days: 1
 
   linux:
-    name: Anexar o binário Linux
-    needs: release
+    name: Testar e compilar no Linux
     runs-on: ubuntu-latest
 
     steps:
@@ -143,19 +134,57 @@ jobs:
         working-directory: native
         run: cargo build --release --locked -p sistemas-lineares-linux
 
-      - name: Calcular o SHA-256
+      - name: Separar o binário do Linux
         run: |
-          mkdir -p native/target/dist
-          cp native/target/release/sistemas-lineares native/target/dist/sistemas-lineares
-          cd native/target/dist
-          sha256sum sistemas-lineares > SHA256SUMS-linux.txt
-          cat SHA256SUMS-linux.txt
+          mkdir -p dist
+          cp native/target/release/sistemas-lineares dist/SistemasLineares-Linux
+          sha256sum dist/SistemasLineares-Linux
 
-      - name: Anexar à release
+      - name: Enviar o binário
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: dist/SistemasLineares-Linux
+          if-no-files-found: error
+          retention-days: 1
+
+  publicar:
+    name: Publicar a release
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v5
+
+      - name: Juntar os arquivos
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Calcular o SHA-256
+        shell: pwsh
+        run: ./.github/scripts/sha256.ps1 -Destino dist
+
+      - name: Montar as notas da release
+        shell: pwsh
+        run: ./.github/scripts/notas-da-release.ps1 -Versao $env:TAG -Sha256 dist/SHA256SUMS.md -Saida dist/NOTAS.md
+
+      - name: Publicar a release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
+          name: Sistemas Lineares ${{ github.ref_name }}
+          body_path: dist/NOTAS.md
+          draft: false
+          prerelease: false
+          make_latest: true
           fail_on_unmatched_files: true
           files: |
-            native/target/dist/sistemas-lineares
-            native/target/dist/SHA256SUMS-linux.txt
+            dist/SistemasLineares-Windows.exe
+            dist/SistemasLineares-Linux
+            dist/SistemasLineares-Navegador.html
+            dist/SHA256SUMS.txt

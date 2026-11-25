@@ -68,15 +68,15 @@ jobs:
 
       - name: Calcular o SHA-256
         shell: pwsh
-        run: ./.github/scripts/sha256.ps1
+        run: ./.github/scripts/sha256.ps1 -Executavel native/target/release/SistemasLineares.exe -Html SistemasLineares.html
 
       - name: Enviar os arquivos
         uses: actions/upload-artifact@v6
         with:
           name: sistemas-lineares-windows
           path: |
-            native/target/dist/SistemasLineares.exe
-            native/target/dist/SistemasLineares.html
+            native/target/dist/SistemasLineares-Windows.exe
+            native/target/dist/SistemasLineares-Navegador.html
             native/target/dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
@@ -125,18 +125,18 @@ jobs:
       - name: Calcular o SHA-256
         run: |
           mkdir -p native/target/dist
-          cp native/target/release/sistemas-lineares native/target/dist/sistemas-lineares
+          cp native/target/release/sistemas-lineares native/target/dist/SistemasLineares-Linux
           cd native/target/dist
-          sha256sum sistemas-lineares > SHA256SUMS-linux.txt
+          sha256sum SistemasLineares-Linux > SHA256SUMS-linux.txt
           cat SHA256SUMS-linux.txt
-          echo "::notice title=SHA-256 sistemas-lineares::$(cut -d' ' -f1 SHA256SUMS-linux.txt)"
+          echo "::notice title=SHA-256 SistemasLineares-Linux::$(cut -d' ' -f1 SHA256SUMS-linux.txt)"
 
       - name: Enviar os arquivos
         uses: actions/upload-artifact@v6
         with:
           name: sistemas-lineares-linux
           path: |
-            native/target/dist/sistemas-lineares
+            native/target/dist/SistemasLineares-Linux
             native/target/dist/SHA256SUMS-linux.txt
           if-no-files-found: error
           retention-days: 7

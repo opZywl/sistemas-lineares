@@ -77,29 +77,56 @@ for ($i = $inicio + 1; $i -lt $linhas.Length; $i++) {
     }
 }
 
-$notas = [System.Collections.Generic.List[string]]::new()
+function Get-Aparado([System.Collections.Generic.List[string]]$Lista) {
+    while ($Lista.Count -gt 0 -and [string]::IsNullOrWhiteSpace($Lista[0])) {
+        $Lista.RemoveAt(0)
+    }
+    while ($Lista.Count -gt 0 -and [string]::IsNullOrWhiteSpace($Lista[$Lista.Count - 1])) {
+        $Lista.RemoveAt($Lista.Count - 1)
+    }
+    , $Lista
+}
+
+$secao = [System.Collections.Generic.List[string]]::new()
 for ($i = $inicio + 1; $i -lt $fim; $i++) {
-    $notas.Add($linhas[$i])
+    $secao.Add($linhas[$i])
 }
-while ($notas.Count -gt 0 -and [string]::IsNullOrWhiteSpace($notas[0])) {
-    $notas.RemoveAt(0)
-}
-while ($notas.Count -gt 0 -and [string]::IsNullOrWhiteSpace($notas[$notas.Count - 1])) {
-    $notas.RemoveAt($notas.Count - 1)
-}
-if ($notas.Count -eq 0) {
+$secao = Get-Aparado $secao
+if ($secao.Count -eq 0) {
     throw "A seção ## [$Versao] do $Changelog está vazia."
 }
 
+$destaques = [System.Collections.Generic.List[string]]::new()
+$dentro = $false
+foreach ($linha in $secao) {
+    if ($linha -match '^###[ \t]') {
+        $dentro = $linha -match '^###[ \t]+Destaques[ \t]*$'
+        continue
+    }
+    if ($dentro) {
+        $destaques.Add($linha)
+    }
+}
+$destaques = Get-Aparado $destaques
+
+$notas = [System.Collections.Generic.List[string]]::new()
+$notas.Add('Resolve sistemas lineares 2×2 e 3×3 com frações exatas e mostra o sistema num gráfico animado.')
 if ($Sha256) {
     $notas.Add('')
     $notas.Add((Read-Texto $Sha256).TrimEnd())
+}
+$notas.Add('')
+if ($destaques.Count -gt 0) {
+    $notas.Add('**Destaques**')
+    $notas.AddRange($destaques)
+} else {
+    $notas.AddRange($secao)
 }
 
 if ($env:GITHUB_SERVER_URL -and $env:GITHUB_REPOSITORY) {
     $base = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/blob/v$Versao"
     $notas.Add('')
-    $notas.Add("[Como instalar]($base/docs/INSTALANDO.md) · [Histórico completo]($base/CHANGELOG.md)")
+    $notas.Add("[Como instalar e conferir o SHA-256]($base/docs/INSTALANDO.md) · [Histórico completo]($base/CHANGELOG.md)")
 }
 
 $texto = ($notas -join "`n") + "`n"

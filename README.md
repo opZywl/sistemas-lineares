@@ -21,7 +21,7 @@ Autor: Lucas Lima · RA 185964<br>
 ## Instalando o Sistemas Lineares
 Clique [aqui](docs/INSTALANDO.md) para ver como baixar, instalar e conferir o Sistemas Lineares.
 
-O `SistemasLineares.exe` não tem assinatura digital, então o Windows SmartScreen pode avisar na primeira execução. No Linux, o binário `sistemas-lineares` roda direto ou se instala no menu de aplicativos. O código-fonte está neste repositório e cada release traz o SHA-256 dos arquivos.
+O `SistemasLineares-Windows.exe` não tem assinatura digital, então o Windows SmartScreen pode avisar na primeira execução. No Linux, o `SistemasLineares-Linux` roda direto ou se instala no menu de aplicativos. O código-fonte está neste repositório e cada release traz o SHA-256 dos arquivos.
 
 ## Recursos
 - **Cálculo exato:** frações de inteiros de precisão arbitrária e eliminação de Gauss-Jordan, sem arredondamento.
