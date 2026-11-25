@@ -6,6 +6,28 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+## [1.0.1] - 2026-11-25
+
+### Destaques
+- O gráfico aparece também no 3×3 em janelas mais baixas e ficou maior nos dois tamanhos.
+- Usar exemplo e Limpar ficam na linha do seletor 2×2/3×3.
+- Os arquivos da release dizem o sistema no nome e vêm com um único `SHA256SUMS.txt`.
+
+### Alterado
+- Usar exemplo e Limpar subiram para a linha do seletor 2×2/3×3, e o texto "2 equações · 2 incógnitas" foi para a linha dos coeficientes. O painel do gráfico vai até o fim do card: na janela padrão, o gráfico do 2×2 passou de 233×111 para 251×163 pixels e o do 3×3, de 128×61 para 237×113.
+- O Tab segue a ordem da tela: seletor, Usar exemplo, Limpar e as equações.
+- A release traz `SistemasLineares-Windows.exe`, `SistemasLineares-Linux` e `SistemasLineares-Navegador.html`, um único `SHA256SUMS.txt` e notas curtas, com a tabela de downloads e os destaques.
+
+### Corrigido
+- O 3×3 ficava sem gráfico em janelas mais baixas, como 1352×798.
+- Com a solução sobre um eixo, como (0, 4) ou (3, 0), a coordenada caía em cima das retas ou da letra do eixo. Agora ela se afasta do ponto até achar um lugar livre.
+- Durante as animações, as coordenadas e as letras dos eixos não trocam mais de lado no meio do caminho: o lado é decidido pela cena final.
+- A letra "x" do eixo não sai mais pela borda de cima quando o eixo fica no alto do gráfico.
+- Linux: a legenda que não cabe aperta as linhas e termina em reticências, como no Windows.
+- A descrição do gráfico para leitores de tela é sempre a legenda do desenho, nas três versões, mesmo quando a dica mostra um erro.
+- Windows: o gráfico não fica mais parado no meio de um pulso quando o alto contraste é desligado.
+- Versão HTML: a legenda quebra as linhas do mesmo jeito que os apps nativos.
+
 ## [1.0.0] - 2026-11-25
 
 ### Adicionado
@@ -128,7 +150,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 - Entrada de inteiros, decimais com vírgula ou ponto, frações e notação científica, com aviso no campo inválido.
 - Testes: 3.421 verificações, auditoria de 76.674 sistemas com 1.703.886 verificações independentes e paridade entre C# e JavaScript.
 
-[Não lançado]: https://github.com/opZywl/sistemas-lineares/compare/v1.0.0...HEAD
+[Não lançado]: https://github.com/opZywl/sistemas-lineares/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/opZywl/sistemas-lineares/releases/tag/v1.0.1
 [1.0.0]: https://github.com/opZywl/sistemas-lineares/releases/tag/v1.0.0
 [4.0.0]: https://github.com/opZywl/sistemas-lineares/releases/tag/v4.0.0
 [3.0.0]: https://github.com/opZywl/sistemas-lineares/tree/6b4c16b2d090f8de241b6d299185641a07aa95f6

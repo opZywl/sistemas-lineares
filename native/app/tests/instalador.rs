@@ -153,7 +153,7 @@ fn instala_reinstala_e_desinstala_em_pasta_de_teste() {
     let chave = Key::open(&alvos.uninstall_key).expect("chave de desinstalação");
     let esperado = [
         ("DisplayName", "Sistemas Lineares".to_string()),
-        ("DisplayVersion", "1.0.0".to_string()),
+        ("DisplayVersion", "1.0.1".to_string()),
         ("Publisher", "Lucas Lima".to_string()),
         ("Comments", "Feito por Lucas Lima · RA 185964".to_string()),
         ("DisplayIcon", format!("{exe_texto},0")),
@@ -306,7 +306,7 @@ fn caminhos_do_usuario_e_codigos_de_saida() {
         ),
         (0, 1, 2)
     );
-    assert_eq!(install::VERSION, "1.0.0");
+    assert_eq!(install::VERSION, "1.0.1");
 }
 
 #[test]
