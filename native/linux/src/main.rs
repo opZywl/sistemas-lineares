@@ -1,5 +1,5 @@
 use sistemas_lineares_linux::cli::{self, Command};
-use sistemas_lineares_linux::{app, contrast, install};
+use sistemas_lineares_linux::{animation, app, contrast, install};
 
 fn main() {
     let arguments = cli::parse(
@@ -26,8 +26,11 @@ fn main() {
         ),
         Command::Uninstall => install::run_uninstall(arguments.silent),
         Command::Run => {
+            let animations = std::thread::spawn(animation::detect);
+            let high_contrast = contrast::detect(arguments.high_contrast);
             let launch = app::Launch {
-                high_contrast: contrast::detect(arguments.high_contrast),
+                high_contrast,
+                animations: animations.join().unwrap_or(true),
                 ..app::Launch::default()
             };
             match app::run(launch) {

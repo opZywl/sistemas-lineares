@@ -76,12 +76,17 @@ pub fn help_text() -> String {
          \x20 --versao          Mostra a versão e sai.\n\
          \x20 --ajuda           Mostra esta ajuda e sai.\n\
          \n\
+         As animações do gráfico seguem a preferência de menos movimento do sistema.\n\
+         \x20 {animations}=0  Desliga as animações.\n\
+         \x20 {animations}=1  Mantém as animações ligadas.\n\
+         \n\
          Códigos de saída: 0 concluído, 1 erro, 2 desinstalação cancelada.\n",
         install::PRODUCT,
         install::VERSION,
         install::DESCRIPTION,
         install::APP_ID,
         crate::contrast::ENVIRONMENT,
+        animations = crate::animation::ENVIRONMENT,
     )
 }
 
@@ -145,6 +150,9 @@ mod tests {
             "--versao",
             "--ajuda",
             "SISTEMAS_LINEARES_ALTO_CONTRASTE=1",
+            "menos movimento",
+            "SISTEMAS_LINEARES_ANIMACOES=0  Desliga as animações.",
+            "SISTEMAS_LINEARES_ANIMACOES=1  Mantém as animações ligadas.",
             "2 desinstalação cancelada",
         ] {
             assert!(ajuda.contains(trecho), "{trecho}");

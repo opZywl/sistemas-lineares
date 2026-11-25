@@ -7,10 +7,11 @@ use eframe::egui::{
     Sense, TextEdit, TextStyle, Ui, UiBuilder, Vec2, WidgetInfo, accesskit, vec2,
 };
 use sistemas_lineares_core::{Method, Rational, VARIABLE_NAMES, Walkthrough};
+use sistemas_lineares_ui::graph::{self, Motion, Sketch};
 use sistemas_lineares_ui::icons::Icon;
 use sistemas_lineares_ui::layout::{self, Layout, Metrics, Rect};
-use sistemas_lineares_ui::model::{self, Card, Focus, MethodRequest, Model, Notice};
-use sistemas_lineares_ui::text::{ellipsize, margins_for, preferred_height};
+use sistemas_lineares_ui::model::{self, Card, Focus, MethodRequest, Model, Notice, Outcome};
+use sistemas_lineares_ui::text::{ellipsize, keep_groups, margins_for, preferred_height};
 use sistemas_lineares_ui::theme::{self, Color, Font, Palette};
 use sistemas_lineares_ui::thinking::{self, Ink, Item, Page};
 
@@ -64,7 +65,6 @@ pub enum Target {
     Two,
     Three,
     Field(usize, usize),
-    Solve,
     Example,
     Clear,
     Think,
@@ -88,13 +88,7 @@ impl Target {
                 all.push(Target::Field(row, column));
             }
         }
-        all.extend([
-            Target::Solve,
-            Target::Example,
-            Target::Clear,
-            Target::Think,
-            Target::Copy,
-        ]);
+        all.extend([Target::Example, Target::Clear, Target::Think, Target::Copy]);
         all.extend(Method::ALL.map(Target::Link));
         all.push(Target::Back);
         all.extend(Method::ALL.map(Target::Tab));
@@ -110,6 +104,7 @@ impl Target {
 #[derive(Clone, Copy, Debug)]
 pub struct Launch {
     pub high_contrast: bool,
+    pub animations: bool,
     pub open_url: fn(&str) -> bool,
 }
 
@@ -117,8 +112,48 @@ impl Default for Launch {
     fn default() -> Self {
         Launch {
             high_contrast: false,
+            animations: true,
             open_url: open_in_browser,
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Seen {
+    dimension: usize,
+    inputs: [[String; 4]; 3],
+    outcome: Outcome,
+    stale: bool,
+    missing: usize,
+    invalid: usize,
+}
+
+impl Seen {
+    fn of(model: &Model) -> Seen {
+        Seen {
+            dimension: model.dimension(),
+            inputs: std::array::from_fn(|row| {
+                std::array::from_fn(|column| model.input(row, column).to_string())
+            }),
+            outcome: model.outcome().clone(),
+            stale: model.is_stale(),
+            missing: model.missing(),
+            invalid: model.invalid_count(),
+        }
+    }
+
+    fn matches(&self, model: &Model) -> bool {
+        self.dimension == model.dimension()
+            && self.stale == model.is_stale()
+            && self.missing == model.missing()
+            && self.invalid == model.invalid_count()
+            && self.outcome == *model.outcome()
+            && self.inputs.iter().enumerate().all(|(row, values)| {
+                values
+                    .iter()
+                    .enumerate()
+                    .all(|(column, value)| value == model.input(row, column))
+            })
     }
 }
 
@@ -142,7 +177,6 @@ enum Navigation {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Style {
-    Primary,
     Plain,
     Segment,
     Author,
@@ -192,6 +226,11 @@ pub struct App {
     started: bool,
     content: (i32, i32),
     open_url: fn(&str) -> bool,
+    motion: Motion,
+    sketch: Sketch,
+    caption: String,
+    seen: Option<Seen>,
+    animate: bool,
 }
 
 pub fn metrics() -> Metrics {
@@ -455,7 +494,9 @@ fn paint_button(canvas: &Canvas, palette: &Palette, look: &Look, hover: bool, ri
     let author = look.style == Style::Author;
     let segment = look.style == Style::Segment;
     let on_card = matches!(look.target, Target::Think | Target::Copy);
-    let accent = look.style == Style::Primary || look.selected;
+    let cta = look.target == Target::Think;
+    let ghost = look.target == Target::Copy;
+    let accent = look.selected;
     let face = if author {
         palette.link_face
     } else if segment {
@@ -464,7 +505,11 @@ fn paint_button(canvas: &Canvas, palette: &Palette, look: &Look, hover: bool, ri
         palette.button_face
     };
     let fill = if !look.enabled {
-        palette.disabled_fill
+        if ghost {
+            palette.solution_fill
+        } else {
+            palette.disabled_fill
+        }
     } else if accent {
         if hover {
             palette.accent_hover
@@ -472,30 +517,61 @@ fn paint_button(canvas: &Canvas, palette: &Palette, look: &Look, hover: bool, ri
             palette.accent_fill
         }
     } else if hover {
-        palette.hover_fill
+        if ghost {
+            palette.ghost_hover
+        } else {
+            palette.hover_fill
+        }
+    } else if cta {
+        palette.cta_fill
+    } else if ghost {
+        palette.solution_fill
     } else {
         face
     };
     let foreground = if !look.enabled {
-        palette.disabled_text
+        if ghost {
+            palette.ghost_disabled
+        } else {
+            palette.disabled_text
+        }
     } else if accent {
         palette.accent_text
     } else if hover {
-        palette.hover_text
+        if ghost {
+            palette.ghost_hover_text
+        } else {
+            palette.hover_text
+        }
     } else if author {
         palette.link
     } else if segment {
         palette.ink
+    } else if ghost {
+        palette.ghost_text
     } else {
         palette.button_text
+    };
+    let icon_color = if cta && look.enabled && !(hover && palette.high_contrast) {
+        palette.cta_icon
+    } else {
+        foreground
     };
     let secondary = if !look.enabled || accent || (hover && palette.high_contrast) || !author {
         foreground
     } else {
         palette.link_muted
     };
-    let stroke = if !look.enabled && palette.disabled_stroke.is_some() {
+    let stroke = if ghost {
+        Some(if look.enabled {
+            palette.ghost_stroke
+        } else {
+            palette.ghost_disabled
+        })
+    } else if !look.enabled && palette.disabled_stroke.is_some() {
         palette.disabled_stroke
+    } else if cta && look.enabled {
+        palette.high_contrast.then_some(palette.button_stroke)
     } else if accent || author || segment {
         None
     } else {
@@ -560,7 +636,7 @@ fn paint_button(canvas: &Canvas, palette: &Palette, look: &Look, hover: bool, ri
                 (rect.y + (rect.h - icon_size) / 2) as f32,
                 icon_size as f32,
                 icon_size as f32,
-                foreground,
+                icon_color,
             );
         }
         canvas.text(
@@ -577,6 +653,8 @@ fn paint_button(canvas: &Canvas, palette: &Palette, look: &Look, hover: bool, ri
         let inset = if filled || on_card { 3.0 } else { 1.0 };
         let value = if filled {
             palette.primary_focus
+        } else if ghost {
+            palette.ghost_stroke
         } else if author || segment {
             palette.link_focus
         } else {
@@ -656,6 +734,11 @@ impl App {
             started: false,
             content: (0, 0),
             open_url: launch.open_url,
+            motion: Motion::new(),
+            sketch: Sketch::blank(2),
+            caption: String::new(),
+            seen: None,
+            animate: launch.animations,
         }
     }
 
@@ -707,6 +790,18 @@ impl App {
         self.keyboard
     }
 
+    pub fn animates(&self) -> bool {
+        self.animate
+    }
+
+    pub fn graph_busy(&self, now: f64) -> bool {
+        self.motion.busy(now, self.palette.high_contrast)
+    }
+
+    pub fn graph_sketch(&self) -> &Sketch {
+        &self.sketch
+    }
+
     pub fn input_text(&self, row: usize, column: usize) -> &str {
         self.buffers
             .get(row)
@@ -728,7 +823,6 @@ impl App {
             Target::Two => self.change_dimension(2),
             Target::Three => self.change_dimension(3),
             Target::Field(row, column) => self.focus_field(ctx, row, column, true),
-            Target::Solve => self.solve(ctx),
             Target::Example => self.fill_example(),
             Target::Clear => self.clear(ctx),
             Target::Think => self.open_thinking(ctx, Target::Think),
@@ -773,12 +867,40 @@ impl App {
         if !matches!(self.model.card(), Card::Result { .. }) {
             self.spoken = None;
         }
-        if busy {
+        if busy || (!self.model.is_thinking() && self.graph_outdated()) {
             ctx.request_repaint();
         }
         if let Some(due) = self.idle_due {
             let now = ctx.input(|input| input.time);
             ctx.request_repaint_after_secs((due - now).max(0.0) as f32);
+        }
+    }
+
+    fn graph_outdated(&self) -> bool {
+        !self
+            .seen
+            .as_ref()
+            .is_some_and(|seen| seen.matches(&self.model))
+    }
+
+    fn sync_graph(&mut self, now: f64) {
+        if !self.graph_outdated() {
+            return;
+        }
+        self.seen = Some(Seen::of(&self.model));
+        self.sketch = self.model.sketch();
+        self.caption = graph::caption(&self.sketch);
+        self.motion.update(&self.sketch, now, self.animate);
+        if !self.animate {
+            self.motion.settle();
+        }
+    }
+
+    fn helper_text(&self) -> String {
+        if self.model.helper_is_caption() {
+            self.caption.clone()
+        } else {
+            self.model.helper()
         }
     }
 
@@ -946,7 +1068,6 @@ impl App {
                 column,
                 select_all,
             }) => self.focus_field(ctx, row, column, select_all),
-            Some(Focus::Solve) => self.focus(ctx, Target::Solve),
             None => {}
         }
     }
@@ -964,18 +1085,6 @@ impl App {
         };
         let text = format!("{}. {summary}", self.model.dimension_text());
         self.announce(text);
-    }
-
-    fn solve(&mut self, ctx: &egui::Context) {
-        let focus = self.model.solve();
-        self.idle_due = None;
-        match focus {
-            None => self.announce_result(None),
-            Some(_) => {
-                self.refresh_helper_voice();
-                self.apply_focus(ctx, focus);
-            }
-        }
     }
 
     fn enter(&mut self, ctx: &egui::Context, row: usize, column: usize) {
@@ -1317,6 +1426,8 @@ impl App {
         actions: &mut Vec<Action>,
     ) {
         let palette = self.palette;
+        let now = ui.input(|input| input.time);
+        self.sync_graph(now);
         canvas.text(
             model::INTRO,
             Font::Large,
@@ -1428,7 +1539,7 @@ impl App {
         );
         for row in 0..dimension {
             let number = if self.model.row_complete(row) {
-                palette.accent
+                palette.graph_rows[row]
             } else {
                 palette.muted
             };
@@ -1456,25 +1567,9 @@ impl App {
                 }
             }
         }
-        self.draw_helper(ui, canvas, layout);
-        self.button(
-            ui,
-            canvas,
-            Look {
-                target: Target::Solve,
-                rect: layout.solve,
-                text: model::SOLVE_LABEL,
-                name: model::SOLVE_LABEL.to_string(),
-                icon: Some(Icon::ArrowRight),
-                style: Style::Primary,
-                selected: false,
-                enabled: true,
-                tip: None,
-                description: None,
-                role: Role::Button,
-            },
-            actions,
-        );
+        let helper = self.helper_text();
+        self.draw_graph(ui, canvas, layout, now, &helper);
+        self.draw_helper(ui, canvas, layout, helper);
         self.button(
             ui,
             canvas,
@@ -1515,12 +1610,41 @@ impl App {
         self.draw_footer(ui, canvas, layout, actions);
     }
 
-    fn draw_helper(&mut self, ui: &mut Ui, canvas: &Canvas, layout: &Layout) {
+    fn draw_graph(&self, ui: &mut Ui, canvas: &Canvas, layout: &Layout, now: f64, helper: &str) {
+        if layout.graph.is_empty() || layout.plot.is_empty() {
+            return;
+        }
         let palette = self.palette;
-        let helper = self.model.helper();
+        canvas.rounded_box(
+            Frame::inside(layout.graph, theme::GRAPH_RADIUS),
+            palette.graph_fill,
+            Some(palette.graph_stroke),
+        );
+        let plot = layout.plot;
+        let items = self.motion.scene(
+            now,
+            f64::from(plot.w),
+            f64::from(plot.h),
+            1.0,
+            palette.high_contrast,
+        );
+        canvas.scene(plot, &items, &palette);
+        if self.motion.busy(now, palette.high_contrast) {
+            ui.ctx().request_repaint();
+        }
+        let id = Id::unique("grafico");
+        let response = ui.interact(canvas.at(plot), id, Sense::hover());
+        response.widget_info(|| WidgetInfo::labeled(Role::Image, true, graph::GRAPH_NAME));
+        ui.ctx().accesskit_node_builder(id, |node| {
+            node.set_description(helper.to_string());
+        });
+    }
+
+    fn draw_helper(&mut self, ui: &mut Ui, canvas: &Canvas, layout: &Layout, helper: String) {
+        let palette = self.palette;
         let error = self.model.helper_is_error();
         canvas.text(
-            &helper,
+            &keep_groups(&helper),
             Font::Small,
             if error {
                 palette.error_text
@@ -1531,7 +1655,7 @@ impl App {
             },
             layout.helper,
             Align::Left,
-            VAlign::Top,
+            VAlign::Center,
         );
         let important = error
             || matches!(
@@ -2325,7 +2449,7 @@ mod tests {
     #[test]
     fn alvos_tem_ids_unicos() {
         let alvos = Target::all();
-        assert_eq!(alvos.len(), 2 + 12 + 5 + 3 + 1 + 3 + 2);
+        assert_eq!(alvos.len(), 2 + 12 + 4 + 3 + 1 + 3 + 2);
         for alvo in &alvos {
             assert_eq!(Target::from_id(alvo.id()), Some(*alvo));
         }

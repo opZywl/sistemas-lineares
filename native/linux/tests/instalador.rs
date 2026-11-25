@@ -69,6 +69,7 @@ fn versao_e_ajuda() {
     assert_eq!(ajuda.codigo, 0);
     assert!(ajuda.texto.contains("Uso: sistemas-lineares [opções]"));
     assert!(ajuda.texto.contains("--desinstalar"));
+    assert!(ajuda.texto.contains("SISTEMAS_LINEARES_ANIMACOES=0"));
     let estranho = rodar(&home, None, &["--qualquer", "--versao"], "");
     assert_eq!(estranho.codigo, 0);
     assert!(estranho.erros.contains("Opção desconhecida: --qualquer"));

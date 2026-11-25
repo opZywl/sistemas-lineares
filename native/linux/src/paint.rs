@@ -1,10 +1,13 @@
 use std::sync::{Arc, OnceLock};
 
-use eframe::egui::{self, Color32, CornerRadius, Painter, Pos2, Stroke, StrokeKind, pos2, vec2};
+use eframe::egui::{
+    self, Color32, CornerRadius, Painter, Pos2, Stroke, StrokeKind, Vec2, pos2, vec2,
+};
+use sistemas_lineares_ui::graph::{Anchor, Ink, Item, Pt, Shape as Figure};
 use sistemas_lineares_ui::icons::{Icon, Shape, VIEWBOX};
 use sistemas_lineares_ui::layout::Rect;
 use sistemas_lineares_ui::text::{TextMetrics, margins_for, wrap};
-use sistemas_lineares_ui::theme::{self, Color, Font};
+use sistemas_lineares_ui::theme::{self, Color, Font, Palette};
 
 use crate::fonts;
 
@@ -14,6 +17,68 @@ pub fn color(value: Color) -> Color32 {
 
 pub fn with_alpha(value: Color, alpha: u8) -> Color {
     Color { a: alpha, ..value }
+}
+
+pub fn tint(value: Color, alpha: f64) -> Color32 {
+    let alpha = if alpha.is_nan() {
+        0.0
+    } else {
+        alpha.clamp(0.0, 1.0)
+    };
+    let opacity = (f64::from(value.a) * alpha).round() as u8;
+    Color32::from_rgba_unmultiplied(value.r, value.g, value.b, opacity)
+}
+
+pub const fn round_caps(ink: Ink) -> bool {
+    matches!(ink, Ink::Row(_) | Ink::Guide | Ink::Set | Ink::Meet)
+}
+
+pub fn capsule(from: Pos2, to: Pos2, width: f32) -> Vec<Pos2> {
+    let radius = (width / 2.0).max(0.0);
+    let delta = to - from;
+    let length = delta.length();
+    let along = if length > f32::EPSILON {
+        delta / length
+    } else {
+        vec2(1.0, 0.0)
+    };
+    let across = vec2(-along.y, along.x);
+    let steps = ((radius * 4.0).ceil() as usize).clamp(4, 16);
+    let mut points = Vec::with_capacity(2 * steps + 2);
+    for (center, side, forward) in [(to, across, along), (from, -across, -along)] {
+        for step in 0..=steps {
+            let angle = std::f32::consts::PI * step as f32 / steps as f32;
+            let (sin, cos) = angle.sin_cos();
+            points.push(center + (side * cos + forward * sin) * radius);
+        }
+    }
+    points
+}
+
+pub fn dot_count(size: f64, spacing: f64, radius: f64) -> usize {
+    if spacing.is_nan() || spacing <= 0.0 {
+        return 0;
+    }
+    let room = size - radius - spacing / 2.0;
+    if room.is_nan() || room < 0.0 {
+        0
+    } else {
+        (room / spacing).floor() as usize + 1
+    }
+}
+
+pub fn anchored(at: Pt, size: Vec2, horizontal: Anchor, vertical: Anchor, bounds: Vec2) -> Pos2 {
+    let shift = |anchor: Anchor, extent: f32| match anchor {
+        Anchor::Start => 0.0,
+        Anchor::Middle => extent / 2.0,
+        Anchor::End => extent,
+    };
+    let x = at.x as f32 - shift(horizontal, size.x);
+    let y = at.y as f32 - shift(vertical, size.y);
+    pos2(
+        x.min(bounds.x - size.x).max(0.0),
+        y.min(bounds.y - size.y).max(0.0),
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -442,11 +507,109 @@ impl Canvas {
             cursor += 2;
         }
     }
+
+    pub fn scene(&self, plot: Rect, items: &[Item], palette: &Palette) {
+        if plot.is_empty() || items.is_empty() {
+            return;
+        }
+        let area = self.at(plot);
+        let origin = area.min;
+        let place = |point: Pt| pos2(origin.x + point.x as f32, origin.y + point.y as f32);
+        let mut shapes = Vec::with_capacity(items.len());
+        for item in items {
+            let paint = tint(item.ink.color(palette), item.alpha);
+            if paint.a() == 0 {
+                continue;
+            }
+            match &item.shape {
+                Figure::Dots { spacing, radius } => {
+                    let columns = dot_count(f64::from(plot.w), *spacing, *radius);
+                    let rows = dot_count(f64::from(plot.h), *spacing, *radius);
+                    shapes.reserve(columns * rows);
+                    for row in 0..rows {
+                        for column in 0..columns {
+                            let center = Pt::new(
+                                spacing / 2.0 + column as f64 * spacing,
+                                spacing / 2.0 + row as f64 * spacing,
+                            );
+                            shapes.push(egui::Shape::circle_filled(
+                                place(center),
+                                *radius as f32,
+                                paint,
+                            ));
+                        }
+                    }
+                }
+                Figure::Segment { from, to, width } => {
+                    let (from, to) = (place(*from), place(*to));
+                    if round_caps(item.ink) {
+                        shapes.push(egui::Shape::convex_polygon(
+                            capsule(from, to, *width as f32),
+                            paint,
+                            Stroke::NONE,
+                        ));
+                    } else {
+                        shapes.push(egui::Shape::line_segment(
+                            [from, to],
+                            Stroke::new(*width as f32, paint),
+                        ));
+                    }
+                }
+                Figure::Polygon { points } => {
+                    shapes.push(egui::Shape::convex_polygon(
+                        points.iter().map(|point| place(*point)).collect(),
+                        paint,
+                        Stroke::NONE,
+                    ));
+                }
+                Figure::Outline { points, width } => {
+                    shapes.push(egui::Shape::closed_line(
+                        points.iter().map(|point| place(*point)).collect(),
+                        Stroke::new(*width as f32, paint),
+                    ));
+                }
+                Figure::Disc { center, radius } => {
+                    shapes.push(egui::Shape::circle_filled(
+                        place(*center),
+                        *radius as f32,
+                        paint,
+                    ));
+                }
+                Figure::Ring {
+                    center,
+                    radius,
+                    width,
+                } => {
+                    shapes.push(egui::Shape::circle_stroke(
+                        place(*center),
+                        *radius as f32,
+                        Stroke::new(*width as f32, paint),
+                    ));
+                }
+                Figure::Text {
+                    at,
+                    text,
+                    horizontal,
+                    vertical,
+                } => {
+                    let galley = fonts::galley(self.ctx(), text, Font::Small, Color32::PLACEHOLDER);
+                    let corner = anchored(*at, galley.size(), *horizontal, *vertical, area.size());
+                    shapes.push(egui::Shape::galley(
+                        (origin + corner.to_vec2()).round(),
+                        galley,
+                        paint,
+                    ));
+                }
+            }
+        }
+        self.painter.with_clip_rect(area).extend(shapes);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sistemas_lineares_ui::text::keep_groups;
 
     fn medir(texto: &str) -> i32 {
         texto.chars().count() as i32 * 10
@@ -505,6 +668,35 @@ mod tests {
     }
 
     #[test]
+    fn quebra_de_linha_respeita_os_grupos() {
+        let metrica = TextMetrics {
+            height: 18,
+            ascent: 14,
+            descent: 4,
+            external_leading: 0,
+        };
+        let linhas = |texto: &str| -> Vec<String> {
+            plan_text(
+                texto,
+                Rect::new(0, 0, 88, 200),
+                Align::Left,
+                VAlign::Top,
+                metrica,
+                &medir,
+            )
+            .into_iter()
+            .map(|linha| linha.text)
+            .collect()
+        };
+        let texto = "em (2, 1): esse ponto";
+        assert_eq!(linhas(texto), ["em (2,", "1): esse", "ponto"]);
+        assert_eq!(
+            linhas(&keep_groups(texto)),
+            ["em", "(2,\u{a0}1):", "esse", "ponto"]
+        );
+    }
+
+    #[test]
     fn cores_margens_e_anel() {
         assert_eq!(color(theme::ACCENT), Color32::from_rgb(206, 169, 243));
         assert_eq!(with_alpha(theme::ERROR, 70).a, 70);
@@ -516,5 +708,141 @@ mod tests {
         assert_eq!(ring_width(1.0), 2.0);
         assert_eq!(ring_width(2.0), 4.0);
         assert_eq!(ring_width(0.5), 2.0);
+    }
+
+    #[test]
+    fn tinta_com_opacidade_da_cena() {
+        assert_eq!(tint(theme::MINT, 1.0), color(theme::MINT));
+        assert_eq!(tint(theme::MINT, 0.0), Color32::TRANSPARENT);
+        assert_eq!(tint(theme::MINT, f64::NAN), Color32::TRANSPARENT);
+        assert_eq!(tint(theme::MINT, 7.0), color(theme::MINT));
+        assert_eq!(
+            tint(theme::ACCENT, 0.26),
+            Color32::from_rgba_unmultiplied(206, 169, 243, 66)
+        );
+        assert_eq!(
+            tint(with_alpha(theme::ACCENT, 128), 0.5),
+            Color32::from_rgba_unmultiplied(206, 169, 243, 64)
+        );
+    }
+
+    #[test]
+    fn pontas_redondas_so_nas_retas_e_tracos() {
+        for ink in [Ink::Row(0), Ink::Row(2), Ink::Guide, Ink::Set, Ink::Meet] {
+            assert!(round_caps(ink), "{ink:?}");
+        }
+        for ink in [Ink::Grid, Ink::Axis, Ink::Edge, Ink::Texture] {
+            assert!(!round_caps(ink), "{ink:?}");
+        }
+    }
+
+    #[test]
+    fn capsula_envolve_o_segmento_com_meia_largura() {
+        let from = pos2(10.0, 20.0);
+        let to = pos2(40.0, 60.0);
+        let points = capsule(from, to, 4.0);
+        assert!(points.len() >= 10);
+        let direction = (to - from).normalized();
+        let distance = |point: Pos2| {
+            let offset = point - from;
+            let along = offset.dot(direction).clamp(0.0, (to - from).length());
+            (offset - direction * along).length()
+        };
+        for point in &points {
+            assert!((distance(*point) - 2.0).abs() < 1e-3, "{point:?}");
+        }
+        let farthest = points
+            .iter()
+            .map(|point| (*point - from).dot(direction))
+            .fold(f32::MIN, f32::max);
+        assert!((farthest - (50.0 + 2.0)).abs() < 1e-3, "{farthest}");
+        let nearest = points
+            .iter()
+            .map(|point| (*point - from).dot(direction))
+            .fold(f32::MAX, f32::min);
+        assert!((nearest + 2.0).abs() < 1e-3, "{nearest}");
+        let turns: Vec<f32> = (0..points.len())
+            .map(|index| {
+                let a = points[index];
+                let b = points[(index + 1) % points.len()];
+                let c = points[(index + 2) % points.len()];
+                (b - a).x * (c - b).y - (b - a).y * (c - b).x
+            })
+            .collect();
+        assert!(
+            turns.iter().all(|turn| *turn <= 1e-3) || turns.iter().all(|turn| *turn >= -1e-3),
+            "a cápsula é convexa: {turns:?}"
+        );
+        let ponto = capsule(from, from, 2.0);
+        for point in &ponto {
+            assert!(((*point - from).length() - 1.0).abs() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn textura_cabe_inteira_na_area() {
+        assert_eq!(dot_count(267.0, 8.0, 0.9), 33);
+        assert_eq!(dot_count(128.0, 8.0, 0.9), 16);
+        assert_eq!(dot_count(163.0, 8.0, 0.9), 20);
+        assert_eq!(dot_count(78.0, 8.0, 0.9), 10);
+        assert_eq!(dot_count(4.9, 8.0, 0.9), 1);
+        assert_eq!(dot_count(4.8, 8.0, 0.9), 0);
+        assert_eq!(dot_count(100.0, 0.0, 0.9), 0);
+        assert_eq!(dot_count(100.0, f64::NAN, 0.9), 0);
+    }
+
+    #[test]
+    fn texto_ancorado_e_trazido_para_dentro() {
+        let tamanho = vec2(20.0, 14.0);
+        let area = vec2(200.0, 100.0);
+        assert_eq!(
+            anchored(
+                Pt::new(50.0, 40.0),
+                tamanho,
+                Anchor::Start,
+                Anchor::Start,
+                area
+            ),
+            pos2(50.0, 40.0)
+        );
+        assert_eq!(
+            anchored(
+                Pt::new(50.0, 40.0),
+                tamanho,
+                Anchor::Middle,
+                Anchor::Middle,
+                area
+            ),
+            pos2(40.0, 33.0)
+        );
+        assert_eq!(
+            anchored(Pt::new(50.0, 40.0), tamanho, Anchor::End, Anchor::End, area),
+            pos2(30.0, 26.0)
+        );
+        assert_eq!(
+            anchored(
+                Pt::new(198.0, 99.0),
+                tamanho,
+                Anchor::Start,
+                Anchor::Start,
+                area
+            ),
+            pos2(180.0, 86.0)
+        );
+        assert_eq!(
+            anchored(Pt::new(3.0, 2.0), tamanho, Anchor::End, Anchor::End, area),
+            pos2(0.0, 0.0)
+        );
+        assert_eq!(
+            anchored(
+                Pt::new(5.0, 5.0),
+                vec2(300.0, 14.0),
+                Anchor::Middle,
+                Anchor::Start,
+                area
+            ),
+            pos2(0.0, 5.0),
+            "texto maior que a área começa na borda esquerda"
+        );
     }
 }

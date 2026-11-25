@@ -8,6 +8,7 @@ use sistemas_lineares_linux::eframe::{self, egui};
 
 const WIDTH: f32 = 1160.0;
 const HEIGHT: f32 = 810.0;
+const FRAME_RATE: f64 = 60.0;
 
 #[derive(Clone)]
 enum Step {
@@ -18,6 +19,9 @@ enum Step {
     Hover(Target),
     Leave,
     Snap(&'static str),
+    Moment(&'static str),
+    Rest,
+    Pause(f64),
     Full(&'static str),
     Size(f32, f32),
     Idle,
@@ -30,6 +34,7 @@ enum Wait {
     Input,
     Size(egui::Vec2),
     Time(f64),
+    Rest,
     Screenshot(String, Slot),
 }
 
@@ -42,6 +47,7 @@ struct Script {
     pointer: Option<egui::Pos2>,
     restore: Option<egui::Vec2>,
     targets: Vec<(Target, egui::Rect)>,
+    frames: u64,
 }
 
 fn key(key: egui::Key) -> Vec<egui::Event> {
@@ -121,6 +127,12 @@ impl Script {
                 self.wait = Some(Wait::Frames(3));
                 return;
             }
+            Some(Wait::Rest) => {
+                if self.app.graph_busy(ctx.input(|input| input.time)) {
+                    self.wait = Some(Wait::Rest);
+                    return;
+                }
+            }
             Some(Wait::Screenshot(name, slot)) => {
                 let image = slot.lock().ok().and_then(|mut guard| guard.take());
                 match image {
@@ -189,7 +201,16 @@ impl Script {
                 self.inject.push(egui::Event::PointerGone);
                 self.wait = Some(Wait::Frames(2));
             }
-            Step::Snap(name) => self.snap(ctx, name),
+            Step::Snap(name) => {
+                self.steps.push_front(Step::Moment(name));
+                self.wait = Some(Wait::Rest);
+            }
+            Step::Moment(name) => self.snap(ctx, name),
+            Step::Rest => self.wait = Some(Wait::Rest),
+            Step::Pause(seconds) => {
+                let now = ctx.input(|input| input.time);
+                self.wait = Some(Wait::Time(now + seconds));
+            }
             Step::Full(name) => {
                 let height = self.app.content_size().1 as f32;
                 let size = egui::vec2(WIDTH, height.max(HEIGHT));
@@ -234,6 +255,9 @@ impl Script {
 
 impl eframe::App for Script {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.frames += 1;
+        raw_input.time = Some(self.frames as f64 / FRAME_RATE);
+        raw_input.focused = true;
         raw_input.events.append(&mut self.inject);
         eframe::App::raw_input_hook(&mut self.app, ctx, raw_input);
     }
@@ -260,9 +284,7 @@ fn script() -> Vec<Step> {
     let mut steps = vec![
         Snap("01-inicial-2x2"),
         Press(Target::Example),
-        Snap("02-exemplo-2x2-pronto"),
-        Press(Target::Solve),
-        Snap("03-exemplo-2x2-resolvido"),
+        Snap("02-exemplo-2x2-resolvido"),
         Press(Target::Think),
         Snap("04-modo-pensar-2x2"),
         Full("05-modo-pensar-gauss-jordan-2x2"),
@@ -273,7 +295,6 @@ fn script() -> Vec<Step> {
         Press(Target::Back),
         Press(Target::Three),
         Press(Target::Example),
-        Press(Target::Solve),
         Snap("08-exemplo-3x3-resolvido"),
         Press(Target::Think),
         Press(Target::Tab(Method::Cramer)),
@@ -288,14 +309,12 @@ fn script() -> Vec<Step> {
             &["2", "4", "6", "8"],
             &["3", "6", "9", "12"],
         ]),
-        Press(Target::Solve),
         Snap("12-infinitas-3x3"),
         Press(Target::Think),
         Press(Target::Tab(Method::Cramer)),
         Full("13-modo-pensar-cramer-singular"),
         Press(Target::Back),
         Write(2, 3, "13"),
-        Press(Target::Solve),
         Snap("14-sem-solucao-3x3"),
         Press(Target::Think),
         Press(Target::Tab(Method::Gauss)),
@@ -303,25 +322,21 @@ fn script() -> Vec<Step> {
         Press(Target::Back),
         Press(Target::Clear),
         Press(Target::Two),
-        Press(Target::Solve),
-        Snap("16-erro-campo-vazio-2x2"),
+        Snap("16-aguardando-2x2"),
         Fill(&[&["3", "0", "1"], &["0", "7", "1e-30"]]),
-        Press(Target::Solve),
         Snap("17-valores-longos-2x2"),
         Press(Target::Think),
         Full("18-modo-pensar-valores-longos"),
         Press(Target::Back),
         Write(0, 0, "1/0"),
-        Press(Target::Solve),
+        Idle,
         Snap("19-erro-denominador-zero"),
         Fill(&[&["1", "1", "2"], &["2", "2", "4"]]),
-        Press(Target::Solve),
         Snap("20-infinitas-2x2"),
         Size(640.0, 480.0),
         Press(Target::Three),
         Snap("21-janela-minima-3x3"),
         Press(Target::Example),
-        Press(Target::Solve),
         Press(Target::Think),
         Snap("22-janela-minima-modo-pensar"),
         Press(Target::Back),
@@ -362,9 +377,9 @@ fn script() -> Vec<Step> {
         Events(key(egui::Key::Enter)),
         Snap("28-enter-resolve-com-tudo-preenchido"),
         Press(Target::Field(1, 3)),
-        Events(tabs(1)),
-        Snap("29-foco-de-teclado-no-resolver"),
-        Events(tabs(5)),
+        Events(tabs(3)),
+        Snap("29-foco-de-teclado-no-modo-pensar"),
+        Events(tabs(2)),
         Snap("30-foco-no-link-do-rodape"),
         Press(Target::Clear),
         Hover(Target::Field(0, 1)),
@@ -392,6 +407,62 @@ fn script() -> Vec<Step> {
         Leave,
         Press(Target::Three),
         Snap("38-tres-por-tres-vazio-com-grade-propria"),
+        Write(0, 0, "1"),
+        Write(0, 1, "1"),
+        Write(0, 2, "1"),
+        Write(0, 3, "6"),
+        Snap("39-grafico-um-plano-3x3"),
+        Fill(&[
+            &["1", "1", "1", "1"],
+            &["1", "-1", "0", "0"],
+            &["2", "0", "1", "1"],
+        ]),
+        Snap("40-grafico-reta-solucao-3x3"),
+        Fill(&[
+            &["1", "0", "0", "0"],
+            &["0", "1", "0", "0"],
+            &["1", "1", "0", "1"],
+        ]),
+        Snap("41-grafico-sem-ponto-comum-3x3"),
+        Press(Target::Two),
+        Press(Target::Clear),
+        Write(0, 0, "2"),
+        Write(0, 1, "1"),
+        Write(0, 3, "5"),
+        Snap("42-grafico-uma-reta-2x2"),
+        Fill(&[&["1", "1", "2"], &["1", "1", "3"]]),
+        Snap("43-grafico-paralelas-2x2"),
+        Fill(&[&["0", "0", "0"], &["0", "0", "0"]]),
+        Snap("44-grafico-tudo-e-solucao-2x2"),
+        Fill(&[&["1", "1", "1000"], &["1", "-1", "0"]]),
+        Snap("45-grafico-solucao-longe-2x2"),
+        Fill(&[&["1/3", "-2/7", "5/11"], &["3/5", "1/9", "-4/13"]]),
+        Snap("46-grafico-fracoes-2x2"),
+        Press(Target::Clear),
+        Rest,
+        Press(Target::Example),
+        Pause(0.05),
+        Moment("47-animacao-retas-surgindo"),
+        Pause(0.45),
+        Moment("48-animacao-ponto-pulsando"),
+        Snap("49-animacao-em-repouso"),
+        Fill(&[&["1", "1", "2"], &["2", "2", "4"]]),
+        Pause(1.0),
+        Moment("50-animacao-pontos-marchando"),
+        Press(Target::Three),
+        Press(Target::Clear),
+        Rest,
+        Press(Target::Example),
+        Pause(0.05),
+        Moment("51-animacao-planos-surgindo"),
+        Snap("52-animacao-planos-em-repouso"),
+        Size(WIDTH, 760.0),
+        Press(Target::Two),
+        Press(Target::Example),
+        Snap("53-janela-baixa-2x2-grafico-menor"),
+        Press(Target::Three),
+        Snap("54-janela-baixa-3x3-legenda-sem-painel"),
+        Size(WIDTH, HEIGHT),
     ]);
     steps
 }
@@ -404,6 +475,7 @@ fn main() -> Result<(), String> {
         .unwrap_or_else(|| PathBuf::from("capturas"));
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let high_contrast = std::env::args().any(|argument| argument == "--alto-contraste");
+    let animations = !std::env::args().any(|argument| argument == "--sem-animacoes");
     let preferences = std::env::temp_dir().join(format!(
         "sistemas-lineares-capturas-{}.ron",
         std::process::id()
@@ -418,6 +490,7 @@ fn main() -> Result<(), String> {
         .with_inner_size([WIDTH, HEIGHT]);
     let launch = Launch {
         high_contrast,
+        animations,
         open_url: |_| true,
     };
     let steps: VecDeque<Step> = script().into();
@@ -426,6 +499,9 @@ fn main() -> Result<(), String> {
         options,
         Box::new(move |context| {
             let app = App::new(context, launch);
+            context
+                .egui_ctx
+                .all_styles_mut(|style| style.visuals.text_cursor.blink = false);
             Ok(Box::new(Script {
                 app,
                 steps,
@@ -435,6 +511,7 @@ fn main() -> Result<(), String> {
                 pointer: None,
                 restore: None,
                 targets: Vec::new(),
+                frames: 0,
             }))
         }),
     )

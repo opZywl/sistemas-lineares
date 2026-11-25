@@ -47,7 +47,7 @@ pub fn detect(flag: bool) -> bool {
     requested(flag, environment.as_deref()).unwrap_or_else(desktop_prefers_contrast)
 }
 
-fn run(program: &str, arguments: &[&str]) -> Option<String> {
+pub(crate) fn run(program: &str, arguments: &[&str]) -> Option<String> {
     let mut child = Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
