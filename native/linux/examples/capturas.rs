@@ -50,23 +50,21 @@ struct Script {
     frames: u64,
 }
 
+fn key_with(key: egui::Key, modifiers: egui::Modifiers) -> Vec<egui::Event> {
+    [true, false]
+        .into_iter()
+        .map(|pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        })
+        .collect()
+}
+
 fn key(key: egui::Key) -> Vec<egui::Event> {
-    vec![
-        egui::Event::Key {
-            key,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers::NONE,
-        },
-        egui::Event::Key {
-            key,
-            physical_key: None,
-            pressed: false,
-            repeat: false,
-            modifiers: egui::Modifiers::NONE,
-        },
-    ]
+    key_with(key, egui::Modifiers::NONE)
 }
 
 fn typing(text: &str) -> Vec<egui::Event> {
@@ -75,6 +73,12 @@ fn typing(text: &str) -> Vec<egui::Event> {
 
 fn tabs(count: usize) -> Vec<egui::Event> {
     (0..count).flat_map(|_| key(egui::Key::Tab)).collect()
+}
+
+fn back_tabs(count: usize) -> Vec<egui::Event> {
+    (0..count)
+        .flat_map(|_| key_with(egui::Key::Tab, egui::Modifiers::SHIFT))
+        .collect()
 }
 
 fn save_png(path: &Path, image: &egui::ColorImage) -> Result<(), String> {
@@ -377,7 +381,7 @@ fn script() -> Vec<Step> {
         Events(key(egui::Key::Enter)),
         Snap("28-enter-resolve-com-tudo-preenchido"),
         Press(Target::Field(1, 3)),
-        Events(tabs(3)),
+        Events(tabs(1)),
         Snap("29-foco-de-teclado-no-modo-pensar"),
         Events(tabs(2)),
         Snap("30-foco-no-link-do-rodape"),
@@ -461,8 +465,20 @@ fn script() -> Vec<Step> {
         Press(Target::Example),
         Snap("53-janela-baixa-2x2-grafico-menor"),
         Press(Target::Three),
-        Snap("54-janela-baixa-3x3-legenda-sem-painel"),
+        Snap("54-janela-baixa-3x3-grafico-menor"),
+        Size(1335.0, 760.0),
+        Snap("55-janela-do-usuario-3x3"),
+        Press(Target::Two),
+        Snap("56-janela-do-usuario-2x2"),
+        Size(1040.0, 760.0),
+        Press(Target::Three),
+        Snap("57-janela-minima-sem-rolagem-3x3"),
+        Press(Target::Two),
+        Snap("58-janela-minima-sem-rolagem-2x2"),
         Size(WIDTH, HEIGHT),
+        Press(Target::Field(0, 0)),
+        Events(back_tabs(2)),
+        Snap("59-foco-de-teclado-no-usar-exemplo"),
     ]);
     steps
 }

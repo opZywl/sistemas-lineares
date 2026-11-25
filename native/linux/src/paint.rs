@@ -6,7 +6,7 @@ use eframe::egui::{
 use sistemas_lineares_ui::graph::{Anchor, Ink, Item, Pt, Shape as Figure};
 use sistemas_lineares_ui::icons::{Icon, Shape, VIEWBOX};
 use sistemas_lineares_ui::layout::Rect;
-use sistemas_lineares_ui::text::{TextMetrics, margins_for, wrap};
+use sistemas_lineares_ui::text::{TextMetrics, ellipsize, margins_for, preferred_height, wrap};
 use sistemas_lineares_ui::theme::{self, Color, Font, Palette};
 
 use crate::fonts;
@@ -138,9 +138,11 @@ pub fn plan_text(
     align: Align,
     valign: VAlign,
     metric: TextMetrics,
+    snug: i32,
     measure: &dyn Fn(&str) -> i32,
 ) -> Vec<PlacedLine> {
     let line_height = metric.height.max(1);
+    let snug = snug.clamp(1, line_height);
     let (left_margin, right_margin) = margins_for(metric);
     let left = rect.x + left_margin;
     let right = rect.right() - right_margin;
@@ -150,7 +152,7 @@ pub fn plan_text(
         .map(|line| line.strip_suffix('\r').unwrap_or(line))
         .collect();
     let wrapping = paragraphs.iter().any(|line| measure(line) > available);
-    let lines: Vec<String> = if wrapping {
+    let mut lines: Vec<String> = if wrapping {
         paragraphs
             .iter()
             .flat_map(|line| wrap(line, available, measure))
@@ -158,7 +160,26 @@ pub fn plan_text(
     } else {
         paragraphs.iter().map(|line| (*line).to_string()).collect()
     };
-    let total = lines.len() as i32 * line_height;
+    let mut pitch = line_height;
+    let room = rect.h - line_height;
+    let count = lines.len() as i32;
+    if wrapping && count > 1 && (count - 1) * line_height > room {
+        let shown = if room < snug {
+            1
+        } else {
+            (room / snug + 1).min(count)
+        };
+        if shown < count {
+            lines.truncate(shown as usize);
+            if let Some(last) = lines.last_mut() {
+                *last = ellipsize(&format!("{}\u{2026}", last.trim_end()), available, measure);
+            }
+        }
+        if shown > 1 {
+            pitch = (room / (shown - 1)).clamp(snug, line_height);
+        }
+    }
+    let total = (lines.len() as i32 - 1).max(0) * pitch + line_height;
     let top = match valign {
         VAlign::Top => rect.y,
         VAlign::Center if total > rect.h => rect.y,
@@ -166,10 +187,7 @@ pub fn plan_text(
     };
     let mut placed = Vec::with_capacity(lines.len());
     for (index, line) in lines.into_iter().enumerate() {
-        let y = top + index as i32 * line_height;
-        if wrapping && index > 0 && y + line_height > rect.bottom() {
-            break;
-        }
+        let y = top + index as i32 * pitch;
         if line.is_empty() {
             continue;
         }
@@ -482,7 +500,9 @@ impl Canvas {
         }
         let metric = fonts::metrics(font);
         let measure = |line: &str| self.measure(line, font);
-        for line in plan_text(text, rect, align, valign, metric, &measure) {
+        let snug = preferred_height(font.pixels(fonts::DPI))
+            .map_or(metric.height, |snug| snug.min(metric.height));
+        for line in plan_text(text, rect, align, valign, metric, snug, &measure) {
             self.line(&line.text, font, value, line.x, line.y, rect);
         }
     }
@@ -629,6 +649,7 @@ mod tests {
             Align::Left,
             VAlign::Top,
             metrica,
+            16,
             &medir,
         );
         assert_eq!(
@@ -652,6 +673,7 @@ mod tests {
             Align::Center,
             VAlign::Center,
             metrica,
+            16,
             &medir,
         );
         assert_eq!(centro[0].x, (3 + 95 - 20) / 2);
@@ -662,9 +684,71 @@ mod tests {
             Align::Right,
             VAlign::Top,
             metrica,
+            16,
             &medir,
         );
         assert_eq!(direita[0].x, 110 - 5 - 30);
+    }
+
+    #[test]
+    fn texto_que_nao_cabe_aperta_as_linhas_e_depois_usa_reticencias() {
+        let metrica = TextMetrics {
+            height: 18,
+            ascent: 14,
+            descent: 4,
+            external_leading: 0,
+        };
+        let frase = "aa bb cc dd ee ff gg hh";
+        let planejar = |altura: i32| {
+            plan_text(
+                frase,
+                Rect::new(0, 0, 88, altura),
+                Align::Left,
+                VAlign::Center,
+                metrica,
+                16,
+                &medir,
+            )
+        };
+        let posicoes = |linhas: &[PlacedLine]| -> Vec<(String, i32)> {
+            linhas
+                .iter()
+                .map(|linha| (linha.text.clone(), linha.y))
+                .collect()
+        };
+        let par = |texto: &str, y: i32| (texto.to_string(), y);
+        assert_eq!(
+            posicoes(&planejar(54)),
+            [par("aa bb cc", 0), par("dd ee ff", 18), par("gg hh", 36)],
+            "com espaço, o passo normal"
+        );
+        assert_eq!(
+            posicoes(&planejar(53)),
+            [par("aa bb cc", 0), par("dd ee ff", 17), par("gg hh", 34)],
+            "faltando 1 px, as linhas se aproximam sem cortar nada"
+        );
+        assert_eq!(
+            posicoes(&planejar(43)),
+            [par("aa bb cc", 3), par("dd ee f\u{2026}", 21)],
+            "sem espaço nem com o passo da fonte, a última linha termina em reticências"
+        );
+        assert_eq!(
+            posicoes(&planejar(10)),
+            [par("aa bb c\u{2026}", 0)],
+            "uma linha só também avisa que há mais texto"
+        );
+        assert_eq!(
+            posicoes(&plan_text(
+                "curto",
+                Rect::new(0, 0, 88, 30),
+                Align::Left,
+                VAlign::Center,
+                metrica,
+                16,
+                &medir
+            )),
+            [par("curto", 6)]
+        );
     }
 
     #[test]
@@ -682,6 +766,7 @@ mod tests {
                 Align::Left,
                 VAlign::Top,
                 metrica,
+                16,
                 &medir,
             )
             .into_iter()

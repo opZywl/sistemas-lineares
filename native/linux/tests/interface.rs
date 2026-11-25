@@ -44,16 +44,20 @@ fn janela_com(launch: Launch, largura: f32, altura: f32) -> Harness<'static, App
     harness
 }
 
-fn janela() -> Harness<'static, App> {
+fn janela_de_tamanho(largura: f32, altura: f32) -> Harness<'static, App> {
     janela_com(
         Launch {
             high_contrast: false,
             animations: false,
             open_url: abre_sem_navegador,
         },
-        1160.0,
-        810.0,
+        largura,
+        altura,
     )
+}
+
+fn janela() -> Harness<'static, App> {
+    janela_de_tamanho(1160.0, 810.0)
 }
 
 fn janela_animada() -> Harness<'static, App> {
@@ -168,8 +172,19 @@ fn layout_padrao(dimensao: usize) -> layout::Layout {
     layout::compute(1.0, 1160, 810, dimensao, app::metrics())
 }
 
+fn layout_da_janela(harness: &Harness<'_, App>) -> layout::Layout {
+    let (largura, altura) = harness.state().content_size();
+    layout::compute(
+        1.0,
+        largura,
+        altura,
+        harness.state().model().dimension(),
+        app::metrics(),
+    )
+}
+
 fn na_tela(harness: &Harness<'_, App>, area: layout::Rect) -> egui::Rect {
-    let plot = layout_padrao(harness.state().model().dimension()).plot;
+    let plot = layout_da_janela(harness).plot;
     let origem = grafico(harness).rect().min - egui::vec2(plot.x as f32, plot.y as f32);
     egui::Rect::from_min_size(
         origem + egui::vec2(area.x as f32, area.y as f32),
@@ -181,27 +196,46 @@ fn mesmo_retangulo(primeiro: egui::Rect, segundo: egui::Rect) -> bool {
     (primeiro.min - segundo.min).length() < 0.01 && (primeiro.max - segundo.max).length() < 0.01
 }
 
-struct LinhaDaDica {
+fn paineis_pintados(harness: &Harness<'_, App>, painel: egui::Rect) -> Vec<RectShape> {
+    let esperado = egui::Rect::from_min_max(
+        painel.min + egui::vec2(0.5, 0.5),
+        painel.max - egui::vec2(0.5, 0.5),
+    );
+    harness
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|forma| match &forma.shape {
+            egui::Shape::Rect(retangulo) if mesmo_retangulo(retangulo.rect, esperado) => {
+                Some(retangulo.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+struct LinhaDeTexto {
     topo: f32,
     esquerda: f32,
+    largura: f32,
     texto: String,
     cor: Color32,
 }
 
-fn linhas_da_dica(harness: &Harness<'_, App>) -> Vec<LinhaDaDica> {
-    let dimensao = harness.state().model().dimension();
-    let area = na_tela(harness, layout_padrao(dimensao).helper);
+fn linhas_em(harness: &Harness<'_, App>, retangulo: layout::Rect) -> Vec<LinhaDeTexto> {
+    let area = na_tela(harness, retangulo);
     let deslocamento =
         fonts::metrics(Font::Small).ascent as f32 - fonts::baseline(&harness.ctx, Font::Small);
-    let mut linhas: Vec<LinhaDaDica> = harness
+    let mut linhas: Vec<LinhaDeTexto> = harness
         .output()
         .shapes
         .iter()
         .filter(|forma| mesmo_retangulo(forma.clip_rect, area))
         .filter_map(|forma| match &forma.shape {
-            egui::Shape::Text(texto) => Some(LinhaDaDica {
+            egui::Shape::Text(texto) => Some(LinhaDeTexto {
                 topo: texto.pos.y - deslocamento - area.min.y,
                 esquerda: texto.pos.x - area.min.x,
+                largura: texto.galley.size().x,
                 texto: texto.galley.text().replace('\u{a0}', " "),
                 cor: texto.fallback_color,
             }),
@@ -212,9 +246,37 @@ fn linhas_da_dica(harness: &Harness<'_, App>) -> Vec<LinhaDaDica> {
     linhas
 }
 
+fn linhas_da_dica(harness: &Harness<'_, App>) -> Vec<LinhaDeTexto> {
+    linhas_em(harness, layout_da_janela(harness).helper)
+}
+
+fn textos_crus_da_dica(harness: &Harness<'_, App>) -> Vec<String> {
+    let area = na_tela(harness, layout_da_janela(harness).helper);
+    harness
+        .output()
+        .shapes
+        .iter()
+        .filter(|forma| mesmo_retangulo(forma.clip_rect, area))
+        .filter_map(|forma| match &forma.shape {
+            egui::Shape::Text(texto) => Some(texto.galley.text().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn posicao_na_arvore(harness: &Harness<'_, App>, nome: &str) -> usize {
+    harness
+        .root()
+        .children_recursive()
+        .position(|no| {
+            let no = no.accesskit_node();
+            no.label().as_deref() == Some(nome) || no.value().as_deref() == Some(nome)
+        })
+        .unwrap_or_else(|| panic!("\"{nome}\" fora da árvore de acessibilidade"))
+}
+
 fn conferir_dica(harness: &Harness<'_, App>, esperado: &str, cor: Color32) {
-    let dimensao = harness.state().model().dimension();
-    let altura = layout_padrao(dimensao).helper.h as f32;
+    let altura = layout_da_janela(harness).helper.h as f32;
     let metrica = fonts::metrics(Font::Small);
     let margem = margins_for(metrica).0 as f32;
     let linhas = linhas_da_dica(harness);
@@ -658,10 +720,7 @@ fn tab_percorre_campos_e_botoes() {
     apertar(&mut harness, Target::Example);
     apertar(&mut harness, Target::Field(1, 3));
     assert_eq!(foco(&harness), Some(Target::Field(1, 3)));
-    tecla(&mut harness, Key::Tab);
-    assert_eq!(foco(&harness), Some(Target::Example));
     for esperado in [
-        Target::Clear,
         Target::Think,
         Target::Copy,
         Target::Link(Method::GaussJordan),
@@ -676,6 +735,69 @@ fn tab_percorre_campos_e_botoes() {
     tecla_com(&mut harness, Modifiers::SHIFT, Key::Tab);
     assert_eq!(foco(&harness), Some(Target::Link(Method::Gauss)));
     assert_eq!(harness.state().footer_tip(), Some(Method::Gauss));
+}
+
+#[test]
+fn tab_e_arvore_seguem_a_ordem_visual_do_card() {
+    for dimensao in [2, 3] {
+        let mut harness = janela();
+        if dimensao == 3 {
+            apertar(&mut harness, Target::Three);
+            apertar(&mut harness, Target::Field(0, 0));
+        }
+        assert_eq!(foco(&harness), Some(Target::Field(0, 0)));
+        for esperado in [Target::Clear, Target::Example, Target::Three, Target::Two] {
+            tecla_com(&mut harness, Modifiers::SHIFT, Key::Tab);
+            assert_eq!(
+                foco(&harness),
+                Some(esperado),
+                "{dimensao}×{dimensao}: Shift+Tab volta pela ordem visual"
+            );
+        }
+        assert!(harness.state().focus_visible());
+        let mut seguintes = vec![
+            Target::Three,
+            Target::Example,
+            Target::Clear,
+            Target::Field(0, 0),
+            Target::Field(0, 1),
+        ];
+        if dimensao == 3 {
+            seguintes.push(Target::Field(0, 2));
+        }
+        seguintes.extend([Target::Field(0, 3), Target::Field(1, 0)]);
+        for esperado in seguintes {
+            tecla(&mut harness, Key::Tab);
+            assert_eq!(
+                foco(&harness),
+                Some(esperado),
+                "{dimensao}×{dimensao}: Tab segue a ordem visual"
+            );
+        }
+        let ordem = [
+            model::ENTRY_TITLE.to_string(),
+            model::SIZE_LABEL.to_string(),
+            model::size_name(2, dimensao == 2),
+            model::size_name(3, dimensao == 3),
+            model::EXAMPLE_LABEL.to_string(),
+            model::CLEAR_LABEL.to_string(),
+            harness.state().model().dimension_text(),
+            model::accessible_input_name(0, 0),
+            model::accessible_input_name(0, 3),
+            model::accessible_input_name(dimensao - 1, 3),
+            graph::GRAPH_NAME.to_string(),
+            model::RESULT_LABEL.to_string(),
+        ];
+        let posicoes: Vec<usize> = ordem
+            .iter()
+            .map(|nome| posicao_na_arvore(&harness, nome))
+            .collect();
+        assert!(
+            posicoes.windows(2).all(|par| par[0] < par[1]),
+            "{dimensao}×{dimensao}: a árvore de acessibilidade segue a ordem visual: {:?}",
+            ordem.iter().zip(&posicoes).collect::<Vec<_>>()
+        );
+    }
 }
 
 #[test]
@@ -1127,12 +1249,15 @@ fn janela_minima_rola_nos_dois_eixos() {
         480.0,
     );
     assert_eq!(harness.state().content_size(), (1040, 760));
-    harness.get_by_label(model::EXAMPLE_LABEL).scroll_to_me();
-    harness.run();
+    for rotulo in [model::EXAMPLE_LABEL, model::CLEAR_LABEL] {
+        let botao = harness.get_by_label(rotulo).rect();
+        assert!(
+            botao.min.x >= 0.0 && botao.max.x <= 640.0 && botao.max.y <= 480.0,
+            "{rotulo} aparece sem rolar, na linha do seletor: {botao:?}"
+        );
+    }
     clicar(&mut harness, model::EXAMPLE_LABEL);
     assert_eq!(cartao(&harness), Card::Result { stale: false });
-    harness.get_by_label(model::EXAMPLE_LABEL).scroll_to_me();
-    harness.run();
     let fora = harness.get_by_label(model::THINK_LABEL).rect();
     assert!(fora.min.x > 640.0, "o botão começa fora da janela");
     harness.get_by_label(model::THINK_LABEL).scroll_to_me();
@@ -1221,13 +1346,17 @@ fn erros_e_avisos_continuam_no_lugar_da_legenda() {
     assert!(texto_visivel(&harness, erro));
     assert_eq!(
         descricao_do_grafico(&harness).as_deref(),
-        Some(erro),
-        "a descrição é o que a legenda mostra"
+        Some(graph::INTRO_TWO),
+        "a descrição do gráfico continua descrevendo o desenho"
     );
     digitar(&mut harness, 0, 0, "2^3");
+    let leitura = "Este campo vale 8.";
+    assert_eq!(harness.state().model().helper(), leitura);
+    assert!(texto_visivel(&harness, leitura));
     assert_eq!(
         descricao_do_grafico(&harness).as_deref(),
-        Some("Este campo vale 8.")
+        Some(graph::INTRO_TWO),
+        "a leitura do campo fica só na dica"
     );
     apertar(&mut harness, Target::Example);
     assert!(harness.state().model().helper_is_caption());
@@ -1290,12 +1419,31 @@ fn legenda_quebra_a_linha_sem_separar_as_coordenadas() {
             && linhas.iter().any(|linha| linha.contains("-50715/28171):")),
         "cada coordenada fica inteira numa linha: {linhas:?}"
     );
+    let crus = textos_crus_da_dica(&harness);
+    assert_eq!(crus.len(), linhas.len(), "{crus:?}");
+    assert!(
+        crus.iter().all(|linha| !linha.contains('\u{a0}')),
+        "coordenadas longas demais não viram um grupo inseparável: {crus:?}"
+    );
     assert_eq!(
         descricao_do_grafico(&harness).as_deref(),
         Some(legenda),
         "o texto acessível mantém os espaços comuns"
     );
     assert!(texto_visivel(&harness, legenda));
+    clicar(&mut harness, model::EXAMPLE_LABEL);
+    let exemplo = "As retas se cruzam em (2, 1): esse ponto é a solução do sistema.";
+    assert_eq!(harness.state().model().helper(), exemplo);
+    let crus = textos_crus_da_dica(&harness);
+    assert!(
+        crus.iter().any(|linha| linha.contains("(2,\u{a0}1):")),
+        "o par curto fica junto na mesma linha: {crus:?}"
+    );
+    assert_eq!(
+        descricao_do_grafico(&harness).as_deref(),
+        Some(exemplo),
+        "o texto acessível não leva o espaço inseparável"
+    );
 }
 
 #[test]
@@ -1313,21 +1461,7 @@ fn painel_tem_fundo_contorno_de_um_pixel_e_cantos_redondos() {
         let paleta = *harness.state().palette();
         let layout = layout_padrao(2);
         let painel = na_tela(&harness, layout.graph);
-        let esperado = egui::Rect::from_min_max(
-            painel.min + egui::vec2(0.5, 0.5),
-            painel.max - egui::vec2(0.5, 0.5),
-        );
-        let paineis: Vec<RectShape> = harness
-            .output()
-            .shapes
-            .iter()
-            .filter_map(|forma| match &forma.shape {
-                egui::Shape::Rect(retangulo) if mesmo_retangulo(retangulo.rect, esperado) => {
-                    Some(retangulo.clone())
-                }
-                _ => None,
-            })
-            .collect();
+        let paineis = paineis_pintados(&harness, painel);
         assert_eq!(paineis.len(), 1, "um painel em layout.graph");
         let retangulo = &paineis[0];
         assert_eq!(retangulo.fill, color(paleta.graph_fill));
@@ -1355,6 +1489,7 @@ fn painel_tem_fundo_contorno_de_um_pixel_e_cantos_redondos() {
 fn grafico_pinta_retas_ponto_e_rotulos_dentro_da_area() {
     let mut harness = janela();
     let paleta = *harness.state().palette();
+    assert_eq!(grafico(&harness).rect().size(), egui::vec2(256.0, 180.0));
     let vazio = formas_do_grafico(&harness);
     let pontinhos = vazio
         .iter()
@@ -1363,7 +1498,7 @@ fn grafico_pinta_retas_ponto_e_rotulos_dentro_da_area() {
                 if circulo.fill == color(paleta.graph_texture) && circulo.radius < 1.0)
         })
         .count();
-    assert_eq!(pontinhos, 33 * 16, "textura cobre a área de 267 × 128");
+    assert_eq!(pontinhos, 32 * 22, "textura cobre a área de 256 × 180");
     assert_eq!(textos(&vazio), ["x", "y"]);
     clicar(&mut harness, model::EXAMPLE_LABEL);
     let formas = formas_do_grafico(&harness);
@@ -1525,33 +1660,134 @@ fn alto_contraste_no_grafico_sem_transparencia_nem_textura() {
     );
 }
 
+fn conferir_planos(harness: &Harness<'_, App>) {
+    let paleta = *harness.state().palette();
+    let cheios = preenchimentos(&formas_do_grafico(harness));
+    for linha in 0..3 {
+        assert!(
+            cheios.contains(&tint(paleta.graph_rows[linha], 0.26)),
+            "plano {linha} translúcido"
+        );
+    }
+    let legenda = "Os três planos se cruzam em (1, 2, 3): esse ponto é a solução do sistema.";
+    assert_eq!(descricao_do_grafico(harness).as_deref(), Some(legenda));
+    conferir_dica(harness, legenda, color(paleta.muted));
+}
+
 #[test]
-fn janela_baixa_sem_painel_mantem_a_legenda() {
-    let mut harness = janela_com(
-        Launch {
-            high_contrast: false,
-            animations: false,
-            open_url: abre_sem_navegador,
-        },
-        640.0,
-        480.0,
-    );
+fn janela_minima_mostra_o_painel_tambem_no_3x3() {
+    let mut harness = janela_de_tamanho(640.0, 480.0);
+    assert_eq!(harness.state().content_size(), (1040, 760));
     assert!(
         harness.query_by_label(graph::GRAPH_NAME).is_some(),
-        "o 2×2 tem espaço para o gráfico"
+        "o 2×2 tem painel"
     );
     apertar(&mut harness, Target::Three);
     assert!(
-        harness.query_by_label(graph::GRAPH_NAME).is_none(),
-        "sem espaço, o 3×3 fica sem painel"
+        harness.query_by_label(graph::GRAPH_NAME).is_some(),
+        "o 3×3 também tem painel na janela mínima"
     );
+    assert_eq!(grafico(&harness).rect().size(), egui::vec2(168.0, 80.0));
     assert!(texto_visivel(&harness, graph::INTRO_THREE));
     apertar(&mut harness, Target::Example);
-    assert!(texto_visivel(
-        &harness,
-        "Os três planos se cruzam em (1, 2, 3): esse ponto é a solução do sistema."
-    ));
+    grafico(&harness).scroll_to_me();
+    harness.run();
+    conferir_planos(&harness);
     esboco_em_dia(&harness);
+}
+
+#[test]
+fn tres_por_tres_na_janela_do_usuario_mostra_o_painel_com_os_planos() {
+    let mut harness = janela_de_tamanho(1335.0, 760.0);
+    assert_eq!(harness.state().content_size(), (1335, 760));
+    clicar(&mut harness, "Sistema 3 × 3");
+    assert!(
+        harness.query_by_label(graph::GRAPH_NAME).is_some(),
+        "o 3×3 tem painel na janela do usuário"
+    );
+    clicar(&mut harness, model::EXAMPLE_LABEL);
+    assert_eq!(valores(&harness), ["1", "2", "3"]);
+    let layout = layout_da_janela(&harness);
+    assert_eq!(grafico(&harness).rect().size(), egui::vec2(168.0, 80.0));
+    let painel = na_tela(&harness, layout.graph);
+    assert_eq!(
+        paineis_pintados(&harness, painel).len(),
+        1,
+        "o painel aparece"
+    );
+    assert!(
+        painel.min.y > campo(&harness, 2, 3).rect().max.y,
+        "o painel fica abaixo da terceira equação"
+    );
+    let copiar = harness.get_by_label(model::COPY_LABEL).rect();
+    assert!(
+        (painel.max.y - copiar.max.y).abs() < 0.5,
+        "o painel termina na altura dos botões do resultado: {painel:?} {copiar:?}"
+    );
+    assert!(painel.contains_rect(grafico(&harness).rect()));
+    conferir_planos(&harness);
+    esboco_em_dia(&harness);
+}
+
+#[test]
+fn botoes_na_linha_do_seletor_e_dimensao_a_direita() {
+    let metrica = fonts::metrics(Font::Small);
+    let (_, margem) = margins_for(metrica);
+    for (largura, altura) in [(1160.0, 810.0), (1335.0, 760.0), (640.0, 480.0)] {
+        let mut harness = janela_de_tamanho(largura, altura);
+        let paleta = *harness.state().palette();
+        for (alvo, dimensao) in [(Target::Two, 2), (Target::Three, 3)] {
+            apertar(&mut harness, alvo);
+            let contexto = format!("janela {largura}×{altura}, {dimensao}×{dimensao}");
+            let layout = layout_da_janela(&harness);
+            for (nome, retangulo) in [
+                (model::size_name(2, dimensao == 2), layout.two),
+                (model::size_name(3, dimensao == 3), layout.three),
+                (model::EXAMPLE_LABEL.to_string(), layout.example),
+                (model::CLEAR_LABEL.to_string(), layout.clear),
+            ] {
+                let no = harness.get(rotulado(nome.clone())).rect();
+                assert!(
+                    mesmo_retangulo(no, na_tela(&harness, retangulo)),
+                    "{contexto}: {nome} em {no:?}"
+                );
+            }
+            let linhas = linhas_em(&harness, layout.dimension_text);
+            assert_eq!(linhas.len(), 1, "{contexto}: dimensão numa linha");
+            let linha = &linhas[0];
+            assert_eq!(
+                linha.texto,
+                format!("{dimensao} equações · {dimensao} incógnitas"),
+                "{contexto}"
+            );
+            assert_eq!(linha.cor, color(paleta.muted), "{contexto}");
+            let sobra =
+                layout.dimension_text.w as f32 - margem as f32 - (linha.esquerda + linha.largura);
+            assert!(
+                (0.0..1.0).contains(&sobra),
+                "{contexto}: dimensão alinhada à direita, sobra {sobra}"
+            );
+            let acima = linha.topo;
+            let abaixo = layout.dimension_text.h as f32 - (linha.topo + metrica.height as f32);
+            assert!(
+                acima > 0.0 && (acima - abaixo).abs() <= 1.0,
+                "{contexto}: dimensão centralizada na vertical, {acima} acima e {abaixo} abaixo"
+            );
+            let rotulo = linhas_em(&harness, layout.grid_label);
+            let textos: Vec<&str> = rotulo.iter().map(|linha| linha.texto.as_str()).collect();
+            assert_eq!(
+                textos,
+                [model::GRID_LABEL],
+                "{contexto}: o rótulo dos coeficientes cabe inteiro numa linha"
+            );
+            let rotulo_y = rotulo[0].topo + layout.grid_label.y as f32;
+            let dimensao_y = linha.topo + layout.dimension_text.y as f32;
+            assert!(
+                (rotulo_y - dimensao_y).abs() < 0.01,
+                "{contexto}: rótulo na linha de base da dimensão, {rotulo_y} e {dimensao_y}"
+            );
+        }
+    }
 }
 
 #[test]

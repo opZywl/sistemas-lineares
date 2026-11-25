@@ -1482,7 +1482,7 @@ impl App {
             palette.muted,
             layout.grid_label,
             Align::Left,
-            VAlign::Top,
+            VAlign::Center,
         );
         canvas.rounded_box(
             Frame::inside(layout.size_track, layout::TRACK_RADIUS),
@@ -1519,14 +1519,15 @@ impl App {
                 actions,
             );
         }
+        self.draw_actions(ui, canvas, layout, actions);
         let dimension_text = self.model.dimension_text();
         canvas.text(
             &dimension_text,
             Font::Small,
             palette.muted,
             layout.dimension_text,
-            Align::Left,
-            VAlign::Top,
+            Align::Right,
+            VAlign::Center,
         );
         label_node(
             ui,
@@ -1567,50 +1568,58 @@ impl App {
                 }
             }
         }
+        self.draw_graph(ui, canvas, layout, now);
         let helper = self.helper_text();
-        self.draw_graph(ui, canvas, layout, now, &helper);
         self.draw_helper(ui, canvas, layout, helper);
-        self.button(
-            ui,
-            canvas,
-            Look {
-                target: Target::Example,
-                rect: layout.example,
-                text: model::EXAMPLE_LABEL,
-                name: model::EXAMPLE_LABEL.to_string(),
-                icon: Some(Icon::Sparkles),
-                style: Style::Plain,
-                selected: false,
-                enabled: true,
-                tip: Some(model::TIP_EXAMPLE),
-                description: None,
-                role: Role::Button,
-            },
-            actions,
-        );
-        self.button(
-            ui,
-            canvas,
-            Look {
-                target: Target::Clear,
-                rect: layout.clear,
-                text: model::CLEAR_LABEL,
-                name: model::CLEAR_LABEL.to_string(),
-                icon: Some(Icon::Reset),
-                style: Style::Plain,
-                selected: false,
-                enabled: true,
-                tip: Some(model::TIP_CLEAR),
-                description: None,
-                role: Role::Button,
-            },
-            actions,
-        );
         self.draw_solution(ui, canvas, layout, actions);
         self.draw_footer(ui, canvas, layout, actions);
     }
 
-    fn draw_graph(&self, ui: &mut Ui, canvas: &Canvas, layout: &Layout, now: f64, helper: &str) {
+    fn draw_actions(
+        &mut self,
+        ui: &mut Ui,
+        canvas: &Canvas,
+        layout: &Layout,
+        actions: &mut Vec<Action>,
+    ) {
+        for (target, rect, text, icon, tip) in [
+            (
+                Target::Example,
+                layout.example,
+                model::EXAMPLE_LABEL,
+                Icon::Sparkles,
+                model::TIP_EXAMPLE,
+            ),
+            (
+                Target::Clear,
+                layout.clear,
+                model::CLEAR_LABEL,
+                Icon::Reset,
+                model::TIP_CLEAR,
+            ),
+        ] {
+            self.button(
+                ui,
+                canvas,
+                Look {
+                    target,
+                    rect,
+                    text,
+                    name: text.to_string(),
+                    icon: Some(icon),
+                    style: Style::Plain,
+                    selected: false,
+                    enabled: true,
+                    tip: Some(tip),
+                    description: None,
+                    role: Role::Button,
+                },
+                actions,
+            );
+        }
+    }
+
+    fn draw_graph(&self, ui: &mut Ui, canvas: &Canvas, layout: &Layout, now: f64) {
         if layout.graph.is_empty() || layout.plot.is_empty() {
             return;
         }
@@ -1636,7 +1645,7 @@ impl App {
         let response = ui.interact(canvas.at(plot), id, Sense::hover());
         response.widget_info(|| WidgetInfo::labeled(Role::Image, true, graph::GRAPH_NAME));
         ui.ctx().accesskit_node_builder(id, |node| {
-            node.set_description(helper.to_string());
+            node.set_description(self.caption.clone());
         });
     }
 
@@ -1973,8 +1982,15 @@ impl App {
         let metric = fonts::metrics(Font::Input);
         let measure = |text: &str| canvas.measure(text, Font::Input);
         let tall = Rect::new(0, 0, area.w, i32::MAX / 4);
-        let lines =
-            crate::paint::plan_text(general, tall, Align::Left, VAlign::Top, metric, &measure);
+        let lines = crate::paint::plan_text(
+            general,
+            tall,
+            Align::Left,
+            VAlign::Top,
+            metric,
+            metric.height,
+            &measure,
+        );
         let needed = lines
             .last()
             .map_or(0, |line| line.y + metric.height)
